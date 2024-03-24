@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-telegram/bot"
@@ -16,14 +17,14 @@ import (
 )
 
 type session struct {
-	chatID        int64
-	messageID     int64
-	ownerID       int64
-	targetUserID  int64
-	pokeMessageID int64
-	voiters       map[int64]int8
-	requiredVotes int16
-	// date for timer
+	chatID           int64
+	voteMessageID    int64
+	requestMessageID int
+	ownerID          int64
+	targetUserID     int64
+	pokeMessageID    int64
+	voiters          map[int64]int8
+	requiredVotes    int16
 }
 
 const (
@@ -41,7 +42,20 @@ var (
 	linkRegex *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+))`)
 
 	sessions map[int64]map[int64]session = make(map[int64]map[int64]session)
+
+	settings map[int64]*DyncmicSetting
+	admins   map[int64]map[int64]bool
 )
+
+// go dealy(ctx, 10, func() { log.Printf("Delayed call") })
+func dealy(ctx context.Context, delaySeconds int64, arg func()) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(time.Duration(delaySeconds * int64(time.Second))):
+		arg()
+	}
+}
 
 func main() {
 	godotenv.Load()
@@ -63,6 +77,7 @@ func main() {
 
 	// TODO: move to env
 	initDb(ctx, mongoAddr, dbName)
+	settings = readChatsSettings(ctx)
 
 	opts := []bot.Option{
 		bot.WithDefaultHandler(handler),
@@ -80,8 +95,15 @@ func main() {
 		panic(err)
 	}
 	myID = me.Username
+
+	admins = make(map[int64]map[int64]bool)
+	for k := range settings {
+		admins[k] = getAdmins(ctx, b, k)
+	}
+
 	mainRegex = regexp.MustCompile(fmt.Sprintf(`%s\s*https://t\.me/(c/)?([\d\w]+)/(\d+)`, myID))
 	b.RegisterHandlerRegexp(bot.HandlerTypeMessageText, mainRegex, handler_poke)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/pause", bot.MatchTypePrefix, pauseHandler)
 	log.Printf("Starting %s", me.Username)
 	b.Start(ctx)
 }
@@ -126,9 +148,18 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		log.Println("something goes wrong")
 		return
 	}
-	if s.ownerID == update.CallbackQuery.From.ID {
+	// AAAAAA
+	superPoke := 0
+	if checkAdmins(ctx, b, s.chatID)[update.CallbackQuery.Message.Message.From.ID] {
+		superPoke = 1
+		if update.CallbackQuery.Data == "button_downvote" {
+			superPoke = -1
+		}
+	}
+
+	if s.ownerID == update.CallbackQuery.From.ID && superPoke == 0 {
 		log.Println("try to vote to it's own")
-		// return
+		return
 	}
 	voteResult := 1
 	if update.CallbackQuery.Data == "button_downvote" {
@@ -145,9 +176,8 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			downvoteCount = downvoteCount + 1
 		}
 	}
-	// TODO: uncomment test code
-	// if upvoteCount-downvoteCount >= int(s.requiredVotes) {
-	if upvoteCount-downvoteCount > 0 {
+
+	if superPoke == 1 || upvoteCount-downvoteCount >= int(s.requiredVotes) {
 		//move to separate function
 		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: s.chatID,
@@ -160,32 +190,80 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		if err != nil {
 			log.Printf("Can't send message %v %d %d ", err, int(s.pokeMessageID), s.chatID)
 		}
+		//Delete the vote message
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    s.chatID,
-			MessageID: int(s.messageID),
+			MessageID: int(s.voteMessageID),
+		})
+		// Delete the vote request
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    s.chatID,
+			MessageID: s.requestMessageID,
 		})
 		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
 		// ToDo: prepare report
 		// delete user and user's messages
+		return
+	}
+	// Downvoted
+	if superPoke == -1 || downvoteCount-upvoteCount >= int(MID_SCORE) {
+		//Delete the vote message
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    s.chatID,
+			MessageID: int(s.voteMessageID),
+		})
+		// Delete the vote request
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    s.chatID,
+			MessageID: s.requestMessageID,
+		})
+		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
+		// ToDo: prepare report
+		// delete user and user's messages
+		return
+	}
 
-	}
-	kb := &models.InlineKeyboardMarkup{
-		InlineKeyboard: [][]models.InlineKeyboardButton{
-			{
-				{Text: fmt.Sprintf("+ (%d)", upvoteCount), CallbackData: "button_upvote"},
-				{Text: fmt.Sprintf("- (%d)", downvoteCount), CallbackData: "button_downvote"},
-			},
-		},
-	}
 	b.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
 		ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
 		MessageID:   update.CallbackQuery.Message.Message.ID,
-		ReplyMarkup: kb,
+		ReplyMarkup: getVoteButtons(upvoteCount, downvoteCount),
 	})
 
 }
 
 func handler_poke(ctx context.Context, b *bot.Bot, update *models.Update) {
+
+	// PAUSE
+	chatSettings, prs := settings[update.Message.Chat.ID]
+	if !prs {
+		chatSettings = &DyncmicSetting{
+			ChatID: update.Message.Chat.ID,
+			Pause:  false,
+		}
+		writeChatSettings(ctx, update.Message.Chat.ID, chatSettings)
+	}
+
+	if chatSettings.Pause {
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    update.Message.Chat.ID,
+			MessageID: update.Message.ID,
+		})
+		replay, err := b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "Бот на паузе",
+		})
+		if err != nil {
+			return
+		}
+		go dealy(ctx, 30, func() {
+			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    replay.Chat.ID,
+				MessageID: replay.ID,
+			})
+		})
+		return
+	}
+
 	log.Printf("message %s", update.Message.Text)
 	pokeConter := 0
 
@@ -230,7 +308,7 @@ MESSAGE_PARSING_LOOP:
 				responceLink = fmt.Sprintf("https://t.me/c/%s/%d", makePublicGroupString(chatId), responceMessage)
 			}
 
-			_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+			reply, err := b.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: chatId,
 				Text:   fmt.Sprintf("Уже есть голосовалка %s", responceLink),
 				ReplyParameters: &models.ReplyParameters{
@@ -241,19 +319,23 @@ MESSAGE_PARSING_LOOP:
 			if err != nil {
 				log.Printf("Can't send message about the duplicate")
 			}
+			removeChatID := chatId
+			removeReplyID := reply.ID
+			removeOriginalID := update.Message.ID
+			go dealy(ctx, 2*60, func() {
+				b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+					ChatID:    removeChatID,
+					MessageID: removeOriginalID,
+				})
+				b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+					ChatID:    removeChatID,
+					MessageID: removeReplyID,
+				})
+			})
 			continue MESSAGE_PARSING_LOOP
 		}
 
 		pokeConter = pokeConter + 1
-
-		kb := &models.InlineKeyboardMarkup{
-			InlineKeyboard: [][]models.InlineKeyboardButton{
-				{
-					{Text: "+ (0)", CallbackData: "button_upvote"},
-					{Text: "- (0)", CallbackData: "button_downvote"},
-				},
-			},
-		}
 
 		// get messsage from link
 		// get user score
@@ -281,7 +363,7 @@ MESSAGE_PARSING_LOOP:
 				ChatID:    chatId,
 				MessageID: update.Message.ID,
 			},
-			ReplyMarkup: kb,
+			ReplyMarkup: getVoteButtons(0, 0),
 		})
 		if err != nil {
 			log.Printf("Some error %v", err)
@@ -290,17 +372,74 @@ MESSAGE_PARSING_LOOP:
 		log.Printf("Responce id %d\n", responceMessage.ID)
 
 		chatSessions[int64(responceMessage.ID)] = session{
-			chatID:        chatId,
-			messageID:     int64(responceMessage.ID),
-			ownerID:       update.Message.From.ID,
-			targetUserID:  userScore.Userid,
-			pokeMessageID: pokeMessageID,
-			voiters:       map[int64]int8{},
-			requiredVotes: requiredScore,
+			chatID:           chatId,
+			voteMessageID:    int64(responceMessage.ID),
+			requestMessageID: update.Message.ID,
+			ownerID:          update.Message.From.ID,
+			targetUserID:     userScore.Userid,
+			pokeMessageID:    pokeMessageID,
+			voiters:          map[int64]int8{},
+			requiredVotes:    requiredScore,
 		}
 	}
 	// save for statistic
 	userMakeVote(ctx, update.Message.From.ID, pokeConter)
+}
+
+func checkAdmins(ctx context.Context, b *bot.Bot, chatID int64) (chatAdmins map[int64]bool) {
+	chatAdmins, rep := admins[chatID]
+	if !rep {
+		chatAdmins = getAdmins(ctx, b, chatID)
+		admins[chatID] = chatAdmins
+	}
+	return chatAdmins
+}
+
+func pauseHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	// CHECK
+	chatAdmins := checkAdmins(ctx, b, update.Message.Chat.ID)
+	_, rep := chatAdmins[update.Message.From.ID]
+
+	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+		ChatID:    update.Message.Chat.ID,
+		MessageID: update.Message.ID,
+	})
+	if !rep {
+		return
+	}
+	log.Printf("Pause handler: %s", update.Message.Text)
+	chatSettings, rep := settings[update.Message.Chat.ID]
+	if !rep {
+		// make func
+		chatSettings = &DyncmicSetting{
+			ChatID: update.Message.Chat.ID,
+			Pause:  false,
+		}
+	}
+	var message string
+	if strings.Contains(update.Message.Text, "enable") {
+		chatSettings.Pause = true
+		message = "Пауза активированна"
+	} else {
+		chatSettings.Pause = false
+		message = "Пауза выключенна"
+	}
+	writeChatSettings(ctx, update.Message.Chat.ID, chatSettings)
+
+	replay, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: update.Message.Chat.ID,
+		Text:   message,
+	})
+	if err != nil {
+		return
+	}
+	go dealy(ctx, 10, func() {
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    replay.Chat.ID,
+			MessageID: replay.ID,
+		})
+	})
+
 }
 
 func handler(ctx context.Context, b *bot.Bot, update *models.Update) {

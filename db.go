@@ -16,9 +16,10 @@ var (
 	// client   *mongo.Client
 	dataBase *mongo.Database
 
-	usersCollection *mongo.Collection
-	banLogs         *mongo.Collection
-	chatMessages    *mongo.Collection
+	usersCollection        *mongo.Collection
+	banLogs                *mongo.Collection
+	chatMessages           *mongo.Collection
+	chatSettingsCollection *mongo.Collection
 
 	upserOptions *options.UpdateOptions
 )
@@ -49,6 +50,11 @@ type ScoreResult struct {
 	Userid int64 `bson:"userid"`
 }
 
+type DyncmicSetting struct {
+	ChatID int64
+	Pause  bool
+}
+
 func initDb(ctx context.Context, connectionLine string, dbName string) {
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(connectionLine))
 	if err != nil {
@@ -64,6 +70,7 @@ func initDb(ctx context.Context, connectionLine string, dbName string) {
 	usersCollection = dataBase.Collection("users")
 	banLogs = dataBase.Collection("ban_log")
 	chatMessages = dataBase.Collection("messages")
+	chatSettingsCollection = dataBase.Collection("settings")
 }
 
 func userPlusOneMessage(ctx context.Context, uID int64) {
@@ -98,21 +105,21 @@ func userMakeVote(ctx context.Context, uID int64, amount int) {
 	log.Printf("Created ids %v, modified %d, upserted %d", result.UpsertedID, result.ModifiedCount, result.UpsertedCount)
 }
 
-func getUserScore(ctx context.Context, uID int64) (score int64, err error) {
-	filter := bson.D{
-		{Key: "uid", Value: uID},
-	}
-	result := usersCollection.FindOne(ctx, filter)
-	var user UserRecord
-	err = result.Decode(&user)
-	if err != nil {
-		log.Printf("Can't get user score %v", err)
-		return 0, err
-	}
+// func getUserScore(ctx context.Context, uID int64) (score int64, err error) {
+// 	filter := bson.D{
+// 		{Key: "uid", Value: uID},
+// 	}
+// 	result := usersCollection.FindOne(ctx, filter)
+// 	var user UserRecord
+// 	err = result.Decode(&user)
+// 	if err != nil {
+// 		log.Printf("Can't get user score %v", err)
+// 		return 0, err
+// 	}
 
-	score = int64(user.Counter) + int64(user.VoteCounter)*100
-	return score, nil
-}
+// 	score = int64(user.Counter) + int64(user.VoteCounter)*100
+// 	return score, nil
+// }
 
 func pushBanLog(ctx context.Context, uID int64, userInfo string, from int64) {
 
@@ -120,12 +127,11 @@ func pushBanLog(ctx context.Context, uID int64, userInfo string, from int64) {
 
 func saveMessage(ctx context.Context, message *ChatMessage) {
 	log.Printf("Pushing message %s", message.Text)
-	result, err := chatMessages.InsertOne(ctx, message)
+	_, err := chatMessages.InsertOne(ctx, message)
 	if err != nil {
 		log.Printf("Can't insert message %v", err)
 		return
 	}
-	log.Printf("Inserted the message %v", result.InsertedID)
 }
 
 func getRatingFromMessage(ctx context.Context, chatID int64, messageID int64) (score *ScoreResult, err error) {
@@ -210,4 +216,39 @@ func getRatingFromMessage(ctx context.Context, chatID int64, messageID int64) (s
 	}
 	log.Printf("Get rating %d for user %d", results[0].Rating, results[0].Userid)
 	return &results[0], nil
+}
+
+func readChatsSettings(ctx context.Context) (ret map[int64]*DyncmicSetting) {
+	filter := bson.D{}
+	cursor, err := chatSettingsCollection.Find(ctx, filter)
+	if err != nil {
+		log.Panic("Can't read settings")
+	}
+	ret = make(map[int64]*DyncmicSetting)
+	for cursor.Next(ctx) {
+		var result DyncmicSetting
+		err := cursor.Decode(&result)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		ret[result.ChatID] = &result
+	}
+	return ret
+
+}
+
+func writeChatSettings(ctx context.Context, chatID int64, settings *DyncmicSetting) {
+	filter := bson.D{
+		{Key: "chatid", Value: chatID},
+	}
+	update := bson.D{
+		{Key: "$set", Value: settings},
+	}
+
+	_, err := chatSettingsCollection.UpdateOne(ctx, filter, update, upserOptions)
+	if err != nil {
+		log.Printf("Upsert of the chat settings went wrong %v", err)
+	}
+
 }
