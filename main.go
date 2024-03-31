@@ -148,6 +148,129 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 	}
 }
 
+func getChatSettings(ctx context.Context, chatId int64) (chatSettings *DyncmicSetting) {
+	chatSettings, prs := settings[chatId]
+	if !prs {
+		chatSettings = &DyncmicSetting{
+			ChatID: chatId,
+			Pause:  false,
+		}
+		writeChatSettings(ctx, chatId, chatSettings)
+	}
+	return chatSettings
+}
+
+func checkForDuplicates(ctx context.Context, chatId int64, pokeMessageID int64, b *bot.Bot, update *models.Update) bool {
+	// Check for duplicates
+	chatSessions, ok := sessions[chatId]
+	if !ok {
+		sessions[chatId] = map[int64]session{}
+		chatSessions = sessions[chatId]
+	}
+
+	for responceMessage, messageSession := range chatSessions {
+		if messageSession.pokeMessageID != pokeMessageID {
+			continue
+		}
+		// log.Printf("$$$ %v %v %v", update.Message.Chat.Type, update.Message.Chat.Username)
+		var responceLink string
+		// TODO: maybe move to separate func
+		if update.Message.Chat.Username != "" {
+			responceLink = fmt.Sprintf("https://t.me/%s/%d", update.Message.Chat.Username, responceMessage)
+		} else {
+			responceLink = fmt.Sprintf("https://t.me/c/%s/%d", makePublicGroupString(chatId), responceMessage)
+		}
+
+		reply, err := b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: chatId,
+			Text:   fmt.Sprintf("Уже есть голосовалка %s", responceLink),
+			ReplyParameters: &models.ReplyParameters{
+				ChatID:    chatId,
+				MessageID: update.Message.ID,
+			},
+		})
+		if err != nil {
+			log.Printf("Can't send message about the duplicate")
+		}
+		removeChatID := chatId
+		removeReplyID := reply.ID
+		removeOriginalID := update.Message.ID
+		go dealy(ctx, 2*60, func() {
+			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    removeChatID,
+				MessageID: removeOriginalID,
+			})
+			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    removeChatID,
+				MessageID: removeReplyID,
+			})
+		})
+		return true
+	}
+	return false
+}
+
+func makeVoteMessage(ctx context.Context, chatId int64, pokeMessageID int64, userScore *ScoreResult, banMessage string, b *bot.Bot, message *models.Message) bool {
+	// move to a separate function
+	var requiredScore int16
+	if userScore.Rating < 10 {
+		requiredScore = LOW_SCORE
+	} else if userScore.Rating < 100 {
+		requiredScore = MID_SCORE
+	} else {
+		requiredScore = HIGH_SCORE
+	}
+
+	responceMessage, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: chatId,
+		Text:   fmt.Sprintf("Голосуем за бан %s", banMessage),
+		ReplyParameters: &models.ReplyParameters{
+			ChatID:    chatId,
+			MessageID: message.ID,
+		},
+		ReplyMarkup: getVoteButtons(0, 0),
+	})
+	if err != nil {
+		log.Printf("Some error %v", err)
+		return false
+	}
+	log.Printf("Responce id %d\n", responceMessage.ID)
+
+	chatSessions := sessions[chatId]
+	chatSessions[int64(responceMessage.ID)] = session{
+		chatID:           chatId,
+		voteMessageID:    int64(responceMessage.ID),
+		requestMessageID: message.ID,
+		ownerID:          message.From.ID,
+		targetUserID:     userScore.Userid,
+		pokeMessageID:    pokeMessageID,
+		voiters:          map[int64]int8{},
+		requiredVotes:    requiredScore,
+	}
+	return true
+}
+
+func onPauseMessage(ctx context.Context, b *bot.Bot, message *models.Message) {
+	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+		ChatID:    message.Chat.ID,
+		MessageID: message.ID,
+	})
+	replay, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID:    message.Chat.ID,
+		Text:      fmt.Sprintf("[%s %s](tg://user?id=%d), бот на паузе", message.From.FirstName, message.From.LastName, message.From.ID),
+		ParseMode: models.ParseModeMarkdown,
+	})
+	if err != nil {
+		return
+	}
+	go dealy(ctx, 30, func() {
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    replay.Chat.ID,
+			MessageID: replay.ID,
+		})
+	})
+}
+
 func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	// answering callback query first to let Telegram know that we received the callback query,
 	// and we're handling it. Otherwise, Telegram might retry sending the update repetitively
@@ -264,43 +387,17 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 func handler_poke(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 	// PAUSE
-	chatSettings, prs := settings[update.Message.Chat.ID]
-	if !prs {
-		chatSettings = &DyncmicSetting{
-			ChatID: update.Message.Chat.ID,
-			Pause:  false,
-		}
-		writeChatSettings(ctx, update.Message.Chat.ID, chatSettings)
-	}
-
+	chatId := update.Message.Chat.ID
+	chatSettings := getChatSettings(ctx, chatId)
 	if chatSettings.Pause {
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    update.Message.Chat.ID,
-			MessageID: update.Message.ID,
-		})
-		replay, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   "Бот на паузе",
-		})
-		if err != nil {
-			return
-		}
-		go dealy(ctx, 30, func() {
-			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-				ChatID:    replay.Chat.ID,
-				MessageID: replay.ID,
-			})
-		})
+		onPauseMessage(ctx, b, update.Message)
 		return
 	}
 
-	log.Printf("message %s", update.Message.Text)
 	pokeConter := 0
-
 	result := linkRegex.FindAllStringSubmatch(update.Message.Text, -1)
-MESSAGE_PARSING_LOOP:
+
 	for i := range result {
-		chatId := update.Message.Chat.ID
 		if result[i][1] == "" {
 			linkUsername := result[i][2]
 			if linkUsername != update.Message.Chat.Username {
@@ -310,7 +407,7 @@ MESSAGE_PARSING_LOOP:
 		} else {
 			parsedID, _ := strconv.ParseInt("-100"+result[i][2], 10, 64)
 			if chatId != parsedID {
-				log.Printf("Chat ID is not match %d != %d\n", parsedID, update.Message.Chat.ID)
+				log.Printf("Chat ID is not match %d != %d\n", parsedID, chatId)
 				continue
 			}
 		}
@@ -319,98 +416,33 @@ MESSAGE_PARSING_LOOP:
 			log.Printf("Message ID is curropted %s", result[i][3])
 			continue
 		}
-		chatSessions, ok := sessions[chatId]
-		if !ok {
-			sessions[chatId] = map[int64]session{}
-			chatSessions = sessions[chatId]
-		}
-		// Check for duplicates
-		for responceMessage, messageSession := range chatSessions {
-			if messageSession.pokeMessageID != pokeMessageID {
-				continue
-			}
-			// log.Printf("$$$ %v %v %v", update.Message.Chat.Type, update.Message.Chat.Username)
-			var responceLink string
-			// TODO: maybe move to separate func
-			if update.Message.Chat.Username != "" {
-				responceLink = fmt.Sprintf("https://t.me/%s/%d", update.Message.Chat.Username, responceMessage)
-			} else {
-				responceLink = fmt.Sprintf("https://t.me/c/%s/%d", makePublicGroupString(chatId), responceMessage)
-			}
 
-			reply, err := b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID: chatId,
-				Text:   fmt.Sprintf("Уже есть голосовалка %s", responceLink),
+		// cut from here
+		if checkForDuplicates(ctx, chatId, pokeMessageID, b, update) {
+			continue
+		}
+		log.Printf("chatID %d pokeID %d", chatId, pokeMessageID)
+		// get user score
+		userScore, err := getRatingFromMessage(ctx, chatId, pokeMessageID)
+		if err != nil {
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   "Извените сообщение не найдено, исользуйте альтернативный метод через \"/ban @<username>\"",
 				ReplyParameters: &models.ReplyParameters{
 					ChatID:    chatId,
 					MessageID: update.Message.ID,
 				},
 			})
-			if err != nil {
-				log.Printf("Can't send message about the duplicate")
-			}
-			removeChatID := chatId
-			removeReplyID := reply.ID
-			removeOriginalID := update.Message.ID
-			go dealy(ctx, 2*60, func() {
-				b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-					ChatID:    removeChatID,
-					MessageID: removeOriginalID,
-				})
-				b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-					ChatID:    removeChatID,
-					MessageID: removeReplyID,
-				})
-			})
-			continue MESSAGE_PARSING_LOOP
-		}
-
-		pokeConter = pokeConter + 1
-
-		// get messsage from link
-		// get user score
-		var requiredScore int16
-		userScore, err := getRatingFromMessage(ctx, chatId, pokeMessageID)
-		if err != nil {
-			// TODO: new message
-			log.Printf("Have to show an alterantive ban way")
-			continue MESSAGE_PARSING_LOOP
-		}
-
-		// move to a separate function
-		if userScore.Rating < 10 {
-			requiredScore = LOW_SCORE
-		} else if userScore.Rating < 100 {
-			requiredScore = MID_SCORE
-		} else {
-			requiredScore = HIGH_SCORE
-		}
-
-		responceMessage, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatId,
-			Text:   fmt.Sprintf("Голосуем за бан %s", result[i][0]),
-			ReplyParameters: &models.ReplyParameters{
-				ChatID:    chatId,
-				MessageID: update.Message.ID,
-			},
-			ReplyMarkup: getVoteButtons(0, 0),
-		})
-		if err != nil {
-			log.Printf("Some error %v", err)
+			// TODO:
+			// delete request
+			// delete message
 			continue
 		}
-		log.Printf("Responce id %d\n", responceMessage.ID)
-
-		chatSessions[int64(responceMessage.ID)] = session{
-			chatID:           chatId,
-			voteMessageID:    int64(responceMessage.ID),
-			requestMessageID: update.Message.ID,
-			ownerID:          update.Message.From.ID,
-			targetUserID:     userScore.Userid,
-			pokeMessageID:    pokeMessageID,
-			voiters:          map[int64]int8{},
-			requiredVotes:    requiredScore,
+		if !makeVoteMessage(ctx, chatId, pokeMessageID, userScore, result[i][0], b, update.Message) {
+			continue
 		}
+		// if not false
+		pokeConter = pokeConter + 1
 	}
 	// save for statistic
 	userMakeVote(ctx, update.Message.From.ID, pokeConter)

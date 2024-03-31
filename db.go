@@ -82,7 +82,7 @@ func userPlusOneMessage(ctx context.Context, uID int64, username string) {
 			{Key: "counter", Value: 1},
 		}},
 	}
-	if len(username) > 0 {
+	if len(username) != 0 {
 		update = append(
 			update,
 			bson.E{
