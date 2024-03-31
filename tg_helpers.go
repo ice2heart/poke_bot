@@ -51,7 +51,6 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool)
 		default:
 			log.Printf("Some strange type here %v", admin.Type)
 		}
-
 	}
 	return ret
 }

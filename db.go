@@ -73,7 +73,7 @@ func initDb(ctx context.Context, connectionLine string, dbName string) {
 	chatSettingsCollection = dataBase.Collection("settings")
 }
 
-func userPlusOneMessage(ctx context.Context, uID int64) {
+func userPlusOneMessage(ctx context.Context, uID int64, username string) {
 	filter := bson.D{
 		{Key: "uid", Value: uID},
 	}
@@ -81,6 +81,15 @@ func userPlusOneMessage(ctx context.Context, uID int64) {
 		{Key: "$inc", Value: bson.D{
 			{Key: "counter", Value: 1},
 		}},
+	}
+	if len(username) > 0 {
+		update = append(
+			update,
+			bson.E{
+				Key:   "$set",
+				Value: bson.D{{Key: "username", Value: username}},
+			},
+		)
 	}
 	result, err := usersCollection.UpdateOne(ctx, filter, update, upserOptions)
 	if err != nil {
@@ -251,4 +260,23 @@ func writeChatSettings(ctx context.Context, chatID int64, settings *DyncmicSetti
 		log.Printf("Upsert of the chat settings went wrong %v", err)
 	}
 
+}
+
+func getUserLastNthMessages(ctx context.Context, userID int64, chatID int64, amaount uint16) (ret []ChatMessage, err error) {
+	filter := bson.D{
+		{Key: "chatid", Value: chatID},
+		{Key: "userid", Value: userID},
+	}
+	options := options.Find().SetSort(bson.D{{Key: "$natural", Value: -1}}).SetLimit(int64(amaount))
+	cursor, err := chatMessages.Find(ctx, filter, options)
+	if err != nil {
+		log.Printf("Cant't get last %dth elemets: %v", amaount, err)
+		return nil, err
+	}
+	err = cursor.All(ctx, &ret)
+	if err != nil {
+		log.Printf("Cant't parse last %dth elemets: %v", amaount, err)
+		return nil, err
+	}
+	return ret, nil
 }

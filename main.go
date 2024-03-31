@@ -57,6 +57,21 @@ func dealy(ctx context.Context, delaySeconds int64, arg func()) {
 	}
 }
 
+func ticker(ctx context.Context, delaySeconds int64, arg func()) {
+	ticker := time.NewTicker(time.Duration(delaySeconds * int64(time.Second)))
+	for {
+		select {
+		case <-ctx.Done():
+			// fmt.Println("Context kill")
+			return
+		case <-ticker.C:
+			// case t := <-ticker.C:
+			// fmt.Println("Tick at", t)
+			arg()
+		}
+	}
+}
+
 func main() {
 	godotenv.Load()
 	botApiKey, ok := os.LookupEnv("BOT_API_KEY")
@@ -74,6 +89,10 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+
+	// go ticker(ctx, 5, func() {
+	// 	log.Printf("test")
+	// })
 
 	// TODO: move to env
 	initDb(ctx, mongoAddr, dbName)
@@ -104,6 +123,7 @@ func main() {
 	mainRegex = regexp.MustCompile(fmt.Sprintf(`%s\s*https://t\.me/(c/)?([\d\w]+)/(\d+)`, myID))
 	b.RegisterHandlerRegexp(bot.HandlerTypeMessageText, mainRegex, handler_poke)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/pause", bot.MatchTypePrefix, pauseHandler)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/ban", bot.MatchTypePrefix, banHandler)
 	log.Printf("Starting %s", me.Username)
 	b.Start(ctx)
 }
@@ -112,7 +132,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if update.Message != nil {
 			log.Printf("%s say: %s, lang code %s", update.Message.From.FirstName, update.Message.Text, update.Message.From.LanguageCode)
-			userPlusOneMessage(ctx, update.Message.From.ID)
+			userPlusOneMessage(ctx, update.Message.From.ID, update.Message.From.Username)
 			now := time.Now()
 			saveMessage(ctx, &ChatMessage{
 				MessageID: int64(update.Message.ID),
@@ -148,7 +168,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		log.Println("something goes wrong")
 		return
 	}
-	// AAAAAA
+
 	superPoke := 0
 	if checkAdmins(ctx, b, s.chatID)[update.CallbackQuery.Message.Message.From.ID] {
 		superPoke = 1
@@ -200,6 +220,16 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			ChatID:    s.chatID,
 			MessageID: s.requestMessageID,
 		})
+
+		userMessages, err := getUserLastNthMessages(ctx, s.targetUserID, s.chatID, 20)
+		if err == nil && len(userMessages) > 0 {
+
+			text := make([]string, len(userMessages))
+			for i, v := range userMessages {
+				text[i] = v.Text
+			}
+			log.Printf("User: %s\n Write messages:\n%s", userMessages[0].UserName, strings.Join(text, "\n"))
+		}
 		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
 		// ToDo: prepare report
 		// delete user and user's messages
@@ -443,5 +473,20 @@ func pauseHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 }
 
 func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
+
+}
+
+func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	// log.Printf("Whole message %v", update.Message.)
+	for _, v := range update.Message.Entities {
+		log.Printf("Message type: %v, entities %s", v.Type, update.Message.Text[v.Offset:v.Offset+v.Length])
+		if v.Type == models.MessageEntityTypeTextMention {
+			log.Printf("Raw data %v ,%v", v.Type, v.User.ID)
+		}
+		if v.Type == models.MessageEntityTypeMention {
+			log.Printf("mention username %s", update.Message.Text[v.Offset:v.Offset+v.Length])
+			// b.Get
+		}
+	}
 
 }
