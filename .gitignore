@@ -1,2 +1,4 @@
 .env
 poke_bot
+
+dist/

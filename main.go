@@ -22,7 +22,6 @@ type session struct {
 	requestMessageID int
 	ownerID          int64
 	targetUserID     int64
-	pokeMessageID    int64
 	voiters          map[int64]int8
 	requiredVotes    int16
 }
@@ -37,6 +36,8 @@ const (
 )
 
 var (
+	myBot *bot.Bot
+
 	myID      string
 	mainRegex *regexp.Regexp
 	linkRegex *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+))`)
@@ -57,7 +58,7 @@ func dealy(ctx context.Context, delaySeconds int64, arg func()) {
 	}
 }
 
-func ticker(ctx context.Context, delaySeconds int64, arg func()) {
+func ticker(ctx context.Context, delaySeconds int64, arg func(context.Context)) {
 	ticker := time.NewTicker(time.Duration(delaySeconds * int64(time.Second)))
 	for {
 		select {
@@ -67,7 +68,7 @@ func ticker(ctx context.Context, delaySeconds int64, arg func()) {
 		case <-ticker.C:
 			// case t := <-ticker.C:
 			// fmt.Println("Tick at", t)
-			arg()
+			arg(ctx)
 		}
 	}
 }
@@ -105,11 +106,12 @@ func main() {
 		bot.WithCallbackQueryDataHandler("button", bot.MatchTypePrefix, voteCallbackHandler),
 	}
 
-	b, err := bot.New(botApiKey, opts...)
+	var err error
+	myBot, err = bot.New(botApiKey, opts...)
 	if err != nil {
 		panic(err)
 	}
-	me, err := b.GetMe(ctx)
+	me, err := myBot.GetMe(ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -117,15 +119,24 @@ func main() {
 
 	admins = make(map[int64]map[int64]bool)
 	for k := range settings {
-		admins[k] = getAdmins(ctx, b, k)
+		admins[k] = getAdmins(ctx, myBot, k)
 	}
 
 	mainRegex = regexp.MustCompile(fmt.Sprintf(`%s\s*https://t\.me/(c/)?([\d\w]+)/(\d+)`, myID))
-	b.RegisterHandlerRegexp(bot.HandlerTypeMessageText, mainRegex, handler_poke)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "/pause", bot.MatchTypePrefix, pauseHandler)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "/ban", bot.MatchTypePrefix, banHandler)
+	myBot.RegisterHandlerRegexp(bot.HandlerTypeMessageText, mainRegex, handler_poke)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/pause", bot.MatchTypePrefix, pauseHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/ban", bot.MatchTypePrefix, banHandler)
 	log.Printf("Starting %s", me.Username)
-	b.Start(ctx)
+	// each 12 hours update admins list
+	go ticker(ctx, 720, getChatAdmins)
+	myBot.Start(ctx)
+}
+
+func getChatAdmins(ctx context.Context) {
+	for k := range settings {
+		admins[k] = getAdmins(ctx, myBot, k)
+		log.Printf("Update admins for chat %d\n%v", k, admins[k])
+	}
 }
 
 func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
@@ -160,7 +171,7 @@ func getChatSettings(ctx context.Context, chatId int64) (chatSettings *DyncmicSe
 	return chatSettings
 }
 
-func checkForDuplicates(ctx context.Context, chatId int64, pokeMessageID int64, b *bot.Bot, update *models.Update) bool {
+func checkForDuplicates(ctx context.Context, chatId int64, userid int64, b *bot.Bot, update *models.Update) bool {
 	// Check for duplicates
 	chatSessions, ok := sessions[chatId]
 	if !ok {
@@ -169,48 +180,16 @@ func checkForDuplicates(ctx context.Context, chatId int64, pokeMessageID int64, 
 	}
 
 	for responceMessage, messageSession := range chatSessions {
-		if messageSession.pokeMessageID != pokeMessageID {
+		if messageSession.targetUserID != userid {
 			continue
 		}
-		// log.Printf("$$$ %v %v %v", update.Message.Chat.Type, update.Message.Chat.Username)
-		var responceLink string
-		// TODO: maybe move to separate func
-		if update.Message.Chat.Username != "" {
-			responceLink = fmt.Sprintf("https://t.me/%s/%d", update.Message.Chat.Username, responceMessage)
-		} else {
-			responceLink = fmt.Sprintf("https://t.me/c/%s/%d", makePublicGroupString(chatId), responceMessage)
-		}
-
-		reply, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatId,
-			Text:   fmt.Sprintf("Уже есть голосовалка %s", responceLink),
-			ReplyParameters: &models.ReplyParameters{
-				ChatID:    chatId,
-				MessageID: update.Message.ID,
-			},
-		})
-		if err != nil {
-			log.Printf("Can't send message about the duplicate")
-		}
-		removeChatID := chatId
-		removeReplyID := reply.ID
-		removeOriginalID := update.Message.ID
-		go dealy(ctx, 2*60, func() {
-			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-				ChatID:    removeChatID,
-				MessageID: removeOriginalID,
-			})
-			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-				ChatID:    removeChatID,
-				MessageID: removeReplyID,
-			})
-		})
+		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("[Уже есть голосовалка](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), responceMessage))
 		return true
 	}
 	return false
 }
 
-func makeVoteMessage(ctx context.Context, chatId int64, pokeMessageID int64, userScore *ScoreResult, banMessage string, b *bot.Bot, message *models.Message) bool {
+func makeVoteMessage(ctx context.Context, chatId int64, userScore *ScoreResult, banMessage string, b *bot.Bot, message *models.Message) bool {
 	// move to a separate function
 	var requiredScore int16
 	if userScore.Rating < 10 {
@@ -250,7 +229,6 @@ func makeVoteMessage(ctx context.Context, chatId int64, pokeMessageID int64, use
 		requestMessageID: message.ID,
 		ownerID:          message.From.ID,
 		targetUserID:     userScore.Userid,
-		pokeMessageID:    pokeMessageID,
 		voiters:          map[int64]int8{},
 		requiredVotes:    requiredScore,
 	}
@@ -258,24 +236,7 @@ func makeVoteMessage(ctx context.Context, chatId int64, pokeMessageID int64, use
 }
 
 func onPauseMessage(ctx context.Context, b *bot.Bot, message *models.Message) {
-	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    message.Chat.ID,
-		MessageID: message.ID,
-	})
-	replay, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    message.Chat.ID,
-		Text:      fmt.Sprintf("[%s %s](tg://user?id=%d), бот на паузе", message.From.FirstName, message.From.LastName, message.From.ID),
-		ParseMode: models.ParseModeMarkdown,
-	})
-	if err != nil {
-		return
-	}
-	go dealy(ctx, 30, func() {
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    replay.Chat.ID,
-			MessageID: replay.ID,
-		})
-	})
+	systemAnswerToMessage(ctx, b, message.Chat.ID, message.ID, fmt.Sprintf("[%s %s](tg://user?id=%d), бот на паузе", message.From.FirstName, message.From.LastName, message.From.ID))
 }
 
 func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
@@ -334,7 +295,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			Text:   fmt.Sprintf("Тык! 👉 в юзера %d для чата %d", s.targetUserID, s.chatID),
 		})
 		if err != nil {
-			log.Printf("Can't send message %v %d %d ", err, int(s.pokeMessageID), s.chatID)
+			log.Printf("Can't send message %v%d ", err, s.chatID)
 		}
 		//Delete the vote message
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
@@ -420,27 +381,16 @@ func handler_poke(ctx context.Context, b *bot.Bot, update *models.Update) {
 			continue
 		}
 
-		// cut from here
-		if checkForDuplicates(ctx, chatId, pokeMessageID, b, update) {
-			continue
-		}
 		// get user score
 		userScore, err := getRatingFromMessage(ctx, chatId, pokeMessageID)
 		if err != nil {
-			b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID: update.Message.Chat.ID,
-				Text:   "Извените сообщение не найдено, исользуйте альтернативный метод через \"/ban @<username>\"",
-				ReplyParameters: &models.ReplyParameters{
-					ChatID:    chatId,
-					MessageID: update.Message.ID,
-				},
-			})
-			// TODO:
-			// delete request
-			// delete message
+			systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извените сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"")
 			continue
 		}
-		if !makeVoteMessage(ctx, chatId, pokeMessageID, userScore, fmt.Sprintf("[сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), pokeMessageID), b, update.Message) {
+		if checkForDuplicates(ctx, chatId, userScore.Userid, b, update) {
+			continue
+		}
+		if !makeVoteMessage(ctx, chatId, userScore, fmt.Sprintf("[сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), pokeMessageID), b, update.Message) {
 			continue
 		}
 		// if not false
@@ -569,29 +519,19 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 				}
 				userScore, err = getRatingFromMessage(ctx, chatId, pokeMessageID)
 				if err != nil {
-					b.SendMessage(ctx, &bot.SendMessageParams{
-						ChatID: update.Message.Chat.ID,
-						Text:   "Извените сообщение не найдено, исользуйте альтернативный метод через \"/ban @<username>\"",
-						ReplyParameters: &models.ReplyParameters{
-							ChatID:    chatId,
-							MessageID: update.Message.ID,
-						},
-					})
-					// TODO:
-					// delete request
-					// delete message
+					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извените сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"")
 					continue
 				}
 				banMessage = fmt.Sprintf("[сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), pokeMessageID)
 			}
 		}
-		// TODO: if link to the message
 		if userScore == nil {
 			continue
 		}
-		log.Printf("score %d", userScore.Rating)
-		// check for duplicates
-		if !makeVoteMessage(ctx, chatId, 0, userScore, banMessage, b, update.Message) {
+		if checkForDuplicates(ctx, chatId, userScore.Userid, b, update) {
+			continue
+		}
+		if !makeVoteMessage(ctx, chatId, userScore, banMessage, b, update.Message) {
 			continue
 		}
 		pokeConter = pokeConter + 1

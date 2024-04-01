@@ -54,3 +54,32 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool)
 	}
 	return ret
 }
+
+func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messageId int, text string) {
+	reply, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID:    chatId,
+		Text:      text,
+		ParseMode: models.ParseModeMarkdown,
+		ReplyParameters: &models.ReplyParameters{
+			ChatID:    chatId,
+			MessageID: messageId,
+		},
+	})
+	if err != nil {
+		log.Printf("error: Can't send message to chatid %d messageId %d: %v", chatId, messageId, err)
+		return
+	}
+	removeChatID := chatId
+	removeReplyID := reply.ID
+	removeOriginalID := messageId
+	go dealy(ctx, 30, func() {
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    removeChatID,
+			MessageID: removeOriginalID,
+		})
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    removeChatID,
+			MessageID: removeReplyID,
+		})
+	})
+}
