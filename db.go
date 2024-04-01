@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -29,11 +30,16 @@ var (
 // counter - inc counter
 // voteCounter - inc counter
 
+const (
+	VOTE_RATING_MULTIPLY = 10
+)
+
 type UserRecord struct {
 	ID          primitive.ObjectID `bson:"_id"`
 	Uid         int64
 	Counter     uint32
 	VoteCounter uint32
+	Username    string
 }
 
 type ChatMessage struct {
@@ -87,7 +93,7 @@ func userPlusOneMessage(ctx context.Context, uID int64, username string) {
 			update,
 			bson.E{
 				Key:   "$set",
-				Value: bson.D{{Key: "username", Value: username}},
+				Value: bson.D{{Key: "username", Value: strings.ToLower(username)}},
 			},
 		)
 	}
@@ -114,21 +120,43 @@ func userMakeVote(ctx context.Context, uID int64, amount int) {
 	log.Printf("Created ids %v, modified %d, upserted %d", result.UpsertedID, result.ModifiedCount, result.UpsertedCount)
 }
 
-// func getUserScore(ctx context.Context, uID int64) (score int64, err error) {
-// 	filter := bson.D{
-// 		{Key: "uid", Value: uID},
-// 	}
-// 	result := usersCollection.FindOne(ctx, filter)
-// 	var user UserRecord
-// 	err = result.Decode(&user)
-// 	if err != nil {
-// 		log.Printf("Can't get user score %v", err)
-// 		return 0, err
-// 	}
+func getRatingFromUserID(ctx context.Context, uID int64) (score *ScoreResult, err error) {
+	filter := bson.D{
+		{Key: "uid", Value: uID},
+	}
+	result := usersCollection.FindOne(ctx, filter)
+	var user UserRecord
+	err = result.Decode(&user)
+	if err != nil {
+		log.Printf("Can't get user score %v", err)
+		return nil, err
+	}
 
-// 	score = int64(user.Counter) + int64(user.VoteCounter)*100
-// 	return score, nil
-// }
+	score = &ScoreResult{
+		Rating: int(user.Counter + user.VoteCounter*VOTE_RATING_MULTIPLY),
+		Userid: user.Uid,
+	}
+	return score, nil
+}
+
+func getRatingFromUsername(ctx context.Context, username string) (score *ScoreResult, err error) {
+	filter := bson.D{
+		{Key: "username", Value: strings.ToLower(username)},
+	}
+	result := usersCollection.FindOne(ctx, filter)
+	var user UserRecord
+	err = result.Decode(&user)
+	if err != nil {
+		log.Printf("Can't get user score %v", err)
+		return nil, err
+	}
+
+	score = &ScoreResult{
+		Rating: int(user.Counter + user.VoteCounter*VOTE_RATING_MULTIPLY),
+		Userid: user.Uid,
+	}
+	return score, nil
+}
 
 func pushBanLog(ctx context.Context, uID int64, userInfo string, from int64) {
 
@@ -189,7 +217,7 @@ func getRatingFromMessage(ctx context.Context, chatID int64, messageID int64) (s
 													},
 												},
 											},
-											10,
+											VOTE_RATING_MULTIPLY,
 										},
 									},
 								},

@@ -221,9 +221,12 @@ func makeVoteMessage(ctx context.Context, chatId int64, pokeMessageID int64, use
 		requiredScore = HIGH_SCORE
 	}
 
+	log.Printf("Message: %s", banMessage)
+
 	responceMessage, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: chatId,
-		Text:   fmt.Sprintf("Голосуем за бан %s", banMessage),
+		ChatID:    chatId,
+		Text:      fmt.Sprintf("Голосуем за бан %s", banMessage),
+		ParseMode: models.ParseModeMarkdown,
 		ReplyParameters: &models.ReplyParameters{
 			ChatID:    chatId,
 			MessageID: message.ID,
@@ -236,7 +239,11 @@ func makeVoteMessage(ctx context.Context, chatId int64, pokeMessageID int64, use
 	}
 	log.Printf("Responce id %d\n", responceMessage.ID)
 
-	chatSessions := sessions[chatId]
+	chatSessions, ok := sessions[chatId]
+	if !ok {
+		sessions[chatId] = map[int64]session{}
+		chatSessions = sessions[chatId]
+	}
 	chatSessions[int64(responceMessage.ID)] = session{
 		chatID:           chatId,
 		voteMessageID:    int64(responceMessage.ID),
@@ -325,10 +332,6 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: s.chatID,
 			Text:   fmt.Sprintf("Тык! 👉 в юзера %d для чата %d", s.targetUserID, s.chatID),
-			ReplyParameters: &models.ReplyParameters{
-				ChatID:    s.chatID,
-				MessageID: int(s.pokeMessageID),
-			},
 		})
 		if err != nil {
 			log.Printf("Can't send message %v %d %d ", err, int(s.pokeMessageID), s.chatID)
@@ -421,7 +424,6 @@ func handler_poke(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if checkForDuplicates(ctx, chatId, pokeMessageID, b, update) {
 			continue
 		}
-		log.Printf("chatID %d pokeID %d", chatId, pokeMessageID)
 		// get user score
 		userScore, err := getRatingFromMessage(ctx, chatId, pokeMessageID)
 		if err != nil {
@@ -438,7 +440,7 @@ func handler_poke(ctx context.Context, b *bot.Bot, update *models.Update) {
 			// delete message
 			continue
 		}
-		if !makeVoteMessage(ctx, chatId, pokeMessageID, userScore, result[i][0], b, update.Message) {
+		if !makeVoteMessage(ctx, chatId, pokeMessageID, userScore, fmt.Sprintf("[сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), pokeMessageID), b, update.Message) {
 			continue
 		}
 		// if not false
@@ -510,15 +512,91 @@ func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	// log.Printf("Whole message %v", update.Message.)
+	pokeConter := 0
+
+	chatId := update.Message.Chat.ID
+	chatSettings := getChatSettings(ctx, chatId)
+	if chatSettings.Pause {
+		onPauseMessage(ctx, b, update.Message)
+		return
+	}
+
 	for _, v := range update.Message.Entities {
 		log.Printf("Message type: %v, entities %s", v.Type, update.Message.Text[v.Offset:v.Offset+v.Length])
+		var userScore *ScoreResult
+		var err error
+		var banMessage string
 		if v.Type == models.MessageEntityTypeTextMention {
-			log.Printf("Raw data %v ,%v", v.Type, v.User.ID)
+			log.Printf("Raw data %v ,%v %v", v.Type, v.User.ID, v.User.FirstName)
+			userScore, err = getRatingFromUserID(ctx, v.User.ID)
+			if err != nil {
+				log.Printf("TODO: return error to user! %v", err)
+				continue
+			}
+			banMessage = fmt.Sprintf("[%s %s](tg://user?id=%d)", v.User.FirstName, v.User.LastName, v.User.ID)
 		}
 		if v.Type == models.MessageEntityTypeMention {
-			log.Printf("mention username %s", update.Message.Text[v.Offset:v.Offset+v.Length])
-			// b.Get
+			username := update.Message.Text[v.Offset+1 : v.Offset+v.Length]
+			log.Printf("mention username @%s", username)
+			userScore, err = getRatingFromUsername(ctx, username)
+			if err != nil {
+				log.Printf("TODO: return error to user! %v", err)
+				continue
+			}
+			banMessage = fmt.Sprintf("@%s", username)
 		}
+		if v.Type == models.MessageEntityTypeURL {
+			log.Printf("%v %s", v, v.URL)
+			rxResult := linkRegex.FindAllStringSubmatch(update.Message.Text[v.Offset:v.Offset+v.Length], -1)
+			for i := range rxResult {
+				if rxResult[i][1] == "" {
+					linkUsername := rxResult[i][2]
+					if linkUsername != update.Message.Chat.Username {
+						log.Printf("Chat Username is not match %s != %s\n", linkUsername, update.Message.Chat.Username)
+						continue
+					}
+				} else {
+					parsedID, _ := strconv.ParseInt("-100"+rxResult[i][2], 10, 64)
+					if chatId != parsedID {
+						log.Printf("Chat ID is not match %d != %d\n", parsedID, chatId)
+						continue
+					}
+				}
+				pokeMessageID, err := strconv.ParseInt(rxResult[i][3], 10, 64)
+				if err != nil {
+					log.Printf("Message ID is curropted %s", rxResult[i][3])
+					continue
+				}
+				userScore, err = getRatingFromMessage(ctx, chatId, pokeMessageID)
+				if err != nil {
+					b.SendMessage(ctx, &bot.SendMessageParams{
+						ChatID: update.Message.Chat.ID,
+						Text:   "Извените сообщение не найдено, исользуйте альтернативный метод через \"/ban @<username>\"",
+						ReplyParameters: &models.ReplyParameters{
+							ChatID:    chatId,
+							MessageID: update.Message.ID,
+						},
+					})
+					// TODO:
+					// delete request
+					// delete message
+					continue
+				}
+				banMessage = fmt.Sprintf("[сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), pokeMessageID)
+			}
+		}
+		// TODO: if link to the message
+		if userScore == nil {
+			continue
+		}
+		log.Printf("score %d", userScore.Rating)
+		// check for duplicates
+		if !makeVoteMessage(ctx, chatId, 0, userScore, banMessage, b, update.Message) {
+			continue
+		}
+		pokeConter = pokeConter + 1
+
 	}
+	userMakeVote(ctx, update.Message.From.ID, pokeConter)
 
 }
