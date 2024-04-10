@@ -142,8 +142,8 @@ func getChatAdmins(ctx context.Context) {
 func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if update.Message != nil {
-			log.Printf("%s say: %s, lang code %s", update.Message.From.FirstName, update.Message.Text, update.Message.From.LanguageCode)
-			userPlusOneMessage(ctx, update.Message.From.ID, update.Message.From.Username)
+			// log.Printf("%s say: %s, lang code %s", update.Message.From.FirstName, update.Message.Text, update.Message.From.LanguageCode)
+			userPlusOneMessage(ctx, update.Message.From.ID, update.Message.From.Username, fmt.Sprintf("%s %s", update.Message.From.FirstName, update.Message.From.LastName))
 			now := time.Now()
 			saveMessage(ctx, &ChatMessage{
 				MessageID: int64(update.Message.ID),
@@ -290,9 +290,10 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 
 	if superPoke == 1 || upvoteCount-downvoteCount >= int(s.requiredVotes) {
 		//move to separate function
-		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: s.chatID,
-			Text:   fmt.Sprintf("Тык! 👉 в юзера %d для чата %d", s.targetUserID, s.chatID),
+		result, err := b.BanChatMember(ctx, &bot.BanChatMemberParams{
+			ChatID:         s.chatID,
+			UserID:         s.targetUserID,
+			RevokeMessages: true,
 		})
 		if err != nil {
 			log.Printf("Can't send message %v%d ", err, s.chatID)
@@ -308,6 +309,21 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			MessageID: s.requestMessageID,
 		})
 
+		user, err := getUser(ctx, s.targetUserID)
+		var banUsertag string
+
+		if err == nil {
+			if len(user.Username) == 0 {
+				banUsertag = fmt.Sprintf("[%s](tg://user?id=%d)", user.AltUsername, user.Uid)
+			} else {
+				banUsertag = fmt.Sprintf("@%s", user.Username)
+			}
+		} else {
+			banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.targetUserID)
+		}
+		// TODO: unban link
+		report := fmt.Sprintf("%s с результатом %b", banUsertag, result)
+
 		userMessages, err := getUserLastNthMessages(ctx, s.targetUserID, s.chatID, 20)
 		if err == nil && len(userMessages) > 0 {
 
@@ -315,11 +331,14 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			for i, v := range userMessages {
 				text[i] = v.Text
 			}
-			log.Printf("User: %s\n Write messages:\n%s", userMessages[0].UserName, strings.Join(text, "\n"))
+			report = fmt.Sprintf("%s\n Write messages:\n%s", report, strings.Join(text, "\n"))
 		}
 		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
-		// ToDo: prepare report
-		// delete user and user's messages
+		// TODO: delete user and user's messages
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: 198082233,
+			Text:   report,
+		})
 		return
 	}
 	// Downvoted

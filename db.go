@@ -40,6 +40,7 @@ type UserRecord struct {
 	Counter     uint32
 	VoteCounter uint32
 	Username    string
+	AltUsername string
 }
 
 type ChatMessage struct {
@@ -79,7 +80,7 @@ func initDb(ctx context.Context, connectionLine string, dbName string) {
 	chatSettingsCollection = dataBase.Collection("settings")
 }
 
-func userPlusOneMessage(ctx context.Context, uID int64, username string) {
+func userPlusOneMessage(ctx context.Context, uID int64, username string, altname string) {
 	filter := bson.D{
 		{Key: "uid", Value: uID},
 	}
@@ -97,6 +98,13 @@ func userPlusOneMessage(ctx context.Context, uID int64, username string) {
 			},
 		)
 	}
+	update = append(
+		update,
+		bson.E{
+			Key:   "$set",
+			Value: bson.D{{Key: "altUsername", Value: altname}},
+		},
+	)
 	result, err := usersCollection.UpdateOne(ctx, filter, update, upserOptions)
 	if err != nil {
 		log.Printf("Upsert of user counter went wrong %v", err)
@@ -156,6 +164,19 @@ func getRatingFromUsername(ctx context.Context, username string) (score *ScoreRe
 		Userid: user.Uid,
 	}
 	return score, nil
+}
+
+func getUser(ctx context.Context, uID int64) (user *UserRecord, err error) {
+	filter := bson.D{
+		{Key: "uid", Value: uID},
+	}
+	result := usersCollection.FindOne(ctx, filter)
+	err = result.Decode(&user)
+	if err != nil {
+		log.Printf("Can't get user score %v", err)
+		return nil, err
+	}
+	return user, nil
 }
 
 func pushBanLog(ctx context.Context, uID int64, userInfo string, from int64) {
