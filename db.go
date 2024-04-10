@@ -105,11 +105,10 @@ func userPlusOneMessage(ctx context.Context, uID int64, username string, altname
 			Value: bson.D{{Key: "altUsername", Value: altname}},
 		},
 	)
-	result, err := usersCollection.UpdateOne(ctx, filter, update, upserOptions)
+	_, err := usersCollection.UpdateOne(ctx, filter, update, upserOptions)
 	if err != nil {
 		log.Printf("Upsert of user counter went wrong %v", err)
 	}
-	log.Printf("Updated ids %v, modified %d, upserted %d", result.UpsertedID, result.ModifiedCount, result.UpsertedCount)
 }
 
 func userMakeVote(ctx context.Context, uID int64, amount int) {
@@ -121,11 +120,10 @@ func userMakeVote(ctx context.Context, uID int64, amount int) {
 			{Key: "voteCounter", Value: amount},
 		}},
 	}
-	result, err := usersCollection.UpdateOne(ctx, filter, update, upserOptions)
+	_, err := usersCollection.UpdateOne(ctx, filter, update, upserOptions)
 	if err != nil {
 		log.Printf("Upsert of user vote maker went wrong %v", err)
 	}
-	log.Printf("Created ids %v, modified %d, upserted %d", result.UpsertedID, result.ModifiedCount, result.UpsertedCount)
 }
 
 func getRatingFromUserID(ctx context.Context, uID int64) (score *ScoreResult, err error) {
@@ -184,7 +182,6 @@ func pushBanLog(ctx context.Context, uID int64, userInfo string, from int64) {
 }
 
 func saveMessage(ctx context.Context, message *ChatMessage) {
-	log.Printf("Pushing message %s", message.Text)
 	_, err := chatMessages.InsertOne(ctx, message)
 	if err != nil {
 		log.Printf("Can't insert message %v", err)
