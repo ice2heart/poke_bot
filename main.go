@@ -200,11 +200,11 @@ func makeVoteMessage(ctx context.Context, chatId int64, userScore *ScoreResult, 
 		requiredScore = HIGH_SCORE
 	}
 
-	log.Printf("Message: %s", banMessage)
+	fullBanMessage := fmt.Sprintf("Голосуем за бан %s", banMessage)
 
 	responceMessage, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    chatId,
-		Text:      fmt.Sprintf("Голосуем за бан %s", banMessage),
+		Text:      fullBanMessage,
 		ParseMode: models.ParseModeMarkdown,
 		ReplyParameters: &models.ReplyParameters{
 			ChatID:    chatId,
@@ -213,7 +213,7 @@ func makeVoteMessage(ctx context.Context, chatId int64, userScore *ScoreResult, 
 		ReplyMarkup: getVoteButtons(0, 0),
 	})
 	if err != nil {
-		log.Printf("Some error %v", err)
+		log.Printf("Can't send ban message %s \nError: %v", fullBanMessage, err)
 		return false
 	}
 	log.Printf("Responce id %d\n", responceMessage.ID)
@@ -296,7 +296,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			RevokeMessages: true,
 		})
 		if err != nil {
-			log.Printf("Can't send message %v%d ", err, s.chatID)
+			log.Printf("Can't send message %v %d ", err, s.chatID)
 		}
 		//Delete the vote message
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
@@ -316,13 +316,13 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			if len(user.Username) == 0 {
 				banUsertag = fmt.Sprintf("[%s](tg://user?id=%d)", user.AltUsername, user.Uid)
 			} else {
-				banUsertag = fmt.Sprintf("@%s", user.Username)
+				banUsertag = fmt.Sprintf("@%s", strings.Replace(user.Username, "_", "\\_", -1))
 			}
 		} else {
 			banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.targetUserID)
 		}
 		// TODO: unban link
-		report := fmt.Sprintf("%s с результатом %b", banUsertag, result)
+		report := fmt.Sprintf("%s с результатом %v", banUsertag, result)
 
 		userMessages, err := getUserLastNthMessages(ctx, s.targetUserID, s.chatID, 20)
 		if err == nil && len(userMessages) > 0 {
@@ -331,14 +331,19 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			for i, v := range userMessages {
 				text[i] = v.Text
 			}
+			// TODO: add markdown escape
 			report = fmt.Sprintf("%s\n Write messages:\n%s", report, strings.Join(text, "\n"))
 		}
 		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
 		// TODO: delete user and user's messages
-		b.SendMessage(ctx, &bot.SendMessageParams{
+		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: 198082233,
 			Text:   report,
+			// ParseMode: models.ParseModeMarkdown,
 		})
+		if err != nil {
+			log.Printf("Can't send report %v", err)
+		}
 		return
 	}
 	// Downvoted
@@ -512,7 +517,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 				log.Printf("TODO: return error to user! %v", err)
 				continue
 			}
-			banMessage = fmt.Sprintf("@%s", username)
+			banMessage = fmt.Sprintf("@%s", strings.Replace(username, "_", "\\_", -1))
 		}
 		if v.Type == models.MessageEntityTypeURL {
 			log.Printf("%v %s", v, v.URL)
