@@ -261,7 +261,9 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 	}
 
 	superPoke := 0
-	if checkAdmins(ctx, b, s.chatID)[update.CallbackQuery.Message.Message.From.ID] {
+
+	isAdmin, isInAdminList := checkAdmins(ctx, b, s.chatID)[update.CallbackQuery.From.ID]
+	if isInAdminList && isAdmin {
 		superPoke = 1
 		if update.CallbackQuery.Data == "button_downvote" {
 			superPoke = -1
@@ -288,7 +290,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		}
 	}
 
-	if superPoke == 1 || upvoteCount-downvoteCount >= int(s.requiredVotes) {
+	if superPoke == 1 || (upvoteCount-downvoteCount >= int(s.requiredVotes)) {
 		//move to separate function
 		result, err := b.BanChatMember(ctx, &bot.BanChatMemberParams{
 			ChatID:         s.chatID,
@@ -347,7 +349,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		return
 	}
 	// Downvoted
-	if superPoke == -1 || downvoteCount-upvoteCount >= int(MID_SCORE) {
+	if superPoke == -1 || (downvoteCount-upvoteCount >= int(MID_SCORE)) {
 		//Delete the vote message
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    s.chatID,
@@ -555,6 +557,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if checkForDuplicates(ctx, chatId, userScore.Userid, b, update) {
 			continue
 		}
+		log.Printf("Start vote process score for user %d %d", userScore.Userid, userScore.Rating)
 		if !makeVoteMessage(ctx, chatId, userScore, banMessage, b, update.Message) {
 			continue
 		}
