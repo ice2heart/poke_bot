@@ -22,6 +22,7 @@ type session struct {
 	requestMessageID int
 	ownerID          int64
 	targetUserID     int64
+	targetMessageID  int64
 	voiters          map[int64]int8
 	requiredVotes    int16
 }
@@ -41,6 +42,8 @@ var (
 	myID      string
 	mainRegex *regexp.Regexp
 	linkRegex *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+))`)
+
+	mdRegex *regexp.Regexp = regexp.MustCompile(`(['_~>#!=\-])`)
 
 	sessions map[int64]map[int64]session = make(map[int64]map[int64]session)
 
@@ -71,6 +74,12 @@ func ticker(ctx context.Context, delaySeconds int64, arg func(context.Context)) 
 			arg(ctx)
 		}
 	}
+}
+
+func escape(line string) string {
+	first_step := regexp.QuoteMeta(line)
+	second_step := strings.ReplaceAll(first_step, "`", "\\`")
+	return mdRegex.ReplaceAllString(second_step, "\\$1")
 }
 
 func main() {
@@ -126,6 +135,8 @@ func main() {
 	myBot.RegisterHandlerRegexp(bot.HandlerTypeMessageText, mainRegex, handler_poke)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/pause", bot.MatchTypePrefix, pauseHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/ban", bot.MatchTypePrefix, banHandler)
+	myBot.RegisterHandler(bot.HandlerTypeCallbackQueryData, "b_", bot.MatchTypePrefix, actionCallbackHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/test", bot.MatchTypePrefix, testHandler)
 	log.Printf("Starting %s", me.Username)
 	// each 12 hours update admins list
 	go ticker(ctx, 720, getChatAdmins)
@@ -189,7 +200,7 @@ func checkForDuplicates(ctx context.Context, chatId int64, userid int64, b *bot.
 	return false
 }
 
-func makeVoteMessage(ctx context.Context, chatId int64, userScore *ScoreResult, banMessage string, b *bot.Bot, message *models.Message) bool {
+func makeVoteMessage(ctx context.Context, chatId int64, targetMessageID int64, userScore *ScoreResult, banMessage string, b *bot.Bot, message *models.Message) bool {
 	// move to a separate function
 	var requiredScore int16
 	if userScore.Rating < 10 {
@@ -227,6 +238,7 @@ func makeVoteMessage(ctx context.Context, chatId int64, userScore *ScoreResult, 
 		chatID:           chatId,
 		voteMessageID:    int64(responceMessage.ID),
 		requestMessageID: message.ID,
+		targetMessageID:  targetMessageID,
 		ownerID:          message.From.ID,
 		targetUserID:     userScore.Userid,
 		voiters:          map[int64]int8{},
@@ -293,13 +305,16 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 	if superPoke == 1 || (upvoteCount-downvoteCount >= int(s.requiredVotes)) {
 		//move to separate function
 		result, err := b.BanChatMember(ctx, &bot.BanChatMemberParams{
-			ChatID:         s.chatID,
-			UserID:         s.targetUserID,
-			RevokeMessages: true,
+			ChatID: s.chatID,
+			UserID: s.targetUserID,
 		})
 		if err != nil {
-			log.Printf("Can't send message %v %d ", err, s.chatID)
+			log.Printf("Can't ban user %v %d ", err, s.chatID)
 		}
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    s.chatID,
+			MessageID: int(s.targetMessageID),
+		})
 		//Delete the vote message
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    s.chatID,
@@ -318,7 +333,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			if len(user.Username) == 0 {
 				banUsertag = fmt.Sprintf("[%s](tg://user?id=%d)", user.AltUsername, user.Uid)
 			} else {
-				banUsertag = fmt.Sprintf("@%s", strings.Replace(user.Username, "_", "\\_", -1))
+				banUsertag = fmt.Sprintf("@%s", escape(user.Username))
 			}
 		} else {
 			banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.targetUserID)
@@ -331,17 +346,23 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 
 			text := make([]string, len(userMessages))
 			for i, v := range userMessages {
-				text[i] = v.Text
+				text[i] = escape(v.Text)
 			}
+			escapedText := strings.Join(text, "\n>")
 			// TODO: add markdown escape
-			report = fmt.Sprintf("%s\n Write messages:\n%s", report, strings.Join(text, "\n"))
+			report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n>%s", report, escapedText)
 		}
+		log.Println(report)
 		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
+		disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
+
 		// TODO: delete user and user's messages
 		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: 198082233,
-			Text:   report,
-			// ParseMode: models.ParseModeMarkdown,
+			ChatID:             198082233,
+			Text:               report,
+			ParseMode:          models.ParseModeMarkdown,
+			ReplyMarkup:        getBanMessageKeyboard(s.chatID, s.targetUserID),
+			LinkPreviewOptions: disablePreview,
 		})
 		if err != nil {
 			log.Printf("Can't send report %v", err)
@@ -416,7 +437,7 @@ func handler_poke(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if checkForDuplicates(ctx, chatId, userScore.Userid, b, update) {
 			continue
 		}
-		if !makeVoteMessage(ctx, chatId, userScore, fmt.Sprintf("[сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), pokeMessageID), b, update.Message) {
+		if !makeVoteMessage(ctx, chatId, pokeMessageID, userScore, fmt.Sprintf("[сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), pokeMessageID), b, update.Message) {
 			continue
 		}
 		// if not false
@@ -502,6 +523,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		var userScore *ScoreResult
 		var err error
 		var banMessage string
+		pokeMessageID := int64(0)
 		if v.Type == models.MessageEntityTypeTextMention {
 			log.Printf("Raw data %v ,%v %v", v.Type, v.User.ID, v.User.FirstName)
 			userScore, err = getRatingFromUserID(ctx, v.User.ID)
@@ -538,7 +560,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 						continue
 					}
 				}
-				pokeMessageID, err := strconv.ParseInt(rxResult[i][3], 10, 64)
+				pokeMessageID, err = strconv.ParseInt(rxResult[i][3], 10, 64)
 				if err != nil {
 					log.Printf("Message ID is curropted %s", rxResult[i][3])
 					continue
@@ -558,7 +580,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 			continue
 		}
 		log.Printf("Start vote process score for user %d %d", userScore.Userid, userScore.Rating)
-		if !makeVoteMessage(ctx, chatId, userScore, banMessage, b, update.Message) {
+		if !makeVoteMessage(ctx, chatId, pokeMessageID, userScore, banMessage, b, update.Message) {
 			continue
 		}
 		pokeConter = pokeConter + 1
@@ -566,4 +588,108 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 	userMakeVote(ctx, update.Message.From.ID, pokeConter)
 
+}
+
+func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+		ShowAlert:       false,
+	})
+	log.Println(len(update.CallbackQuery.Data))
+	data, err := unmarshal(update.CallbackQuery.Data[2:])
+	if err != nil {
+		log.Printf("Action is parsed bad %v", err)
+		return
+	}
+
+	chatAdmins := checkAdmins(ctx, b, data.ChatID)
+	_, rep := chatAdmins[update.CallbackQuery.From.ID]
+
+	if !rep {
+		log.Printf("User %d try to use admin prev for chat %d", update.CallbackQuery.From.ID, data.ChatID)
+		return
+	}
+
+	switch data.Action {
+	case ACTION_UNBAN:
+		{
+			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
+			if !ok {
+				log.Printf("TODO replace to message to user: err there are no userid")
+				return
+			}
+			ok, err := unbanUser(ctx, b, data.ChatID, getInt(userIdRaw))
+			if err != nil {
+				log.Printf("TODO replace to message to user: err %v", err)
+				return
+			}
+			if !ok {
+				log.Printf("TODO replace to message to user: can't unban user")
+				return
+			}
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.CallbackQuery.From.ID,
+				Text:   "Пользователь разбанен",
+				ReplyParameters: &models.ReplyParameters{
+					ChatID:    update.CallbackQuery.From.ID,
+					MessageID: update.CallbackQuery.Message.Message.ID,
+				},
+			})
+		}
+	case ACTION_DELETE_ALL:
+		{
+			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
+			if !ok {
+				log.Printf("TODO replace to message to user: err there are no userid")
+				return
+			}
+			ok, err := deleteAllMessages(ctx, b, data.ChatID, getInt(userIdRaw))
+			if err != nil {
+				log.Printf("TODO replace to message to user: err %v", err)
+				return
+			}
+			if !ok {
+				log.Printf("TODO replace to message to user: can't delete all messages from user")
+				return
+			}
+
+		}
+	}
+}
+
+func testHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	chatId := update.Message.Chat.ID
+	publicInt, _ := strconv.ParseInt(makePublicGroupString(chatId), 10, 64)
+
+	testData := &Item{
+		Action: 1,
+		ChatID: publicInt,
+		Data:   map[uint8]interface{}{1: 23, 4: 4342},
+
+		// Data: "test",
+	}
+
+	enc, err := marshal(testData)
+	if err != nil {
+		log.Printf("Shit happens %v", err)
+		return
+	}
+
+	log.Printf("Button data %s, length %d\n", enc, len(enc))
+
+	_, err = b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID:    chatId,
+		Text:      "Test test",
+		ParseMode: models.ParseModeMarkdown,
+		ReplyMarkup: &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{
+				{
+					{Text: "testbtn", CallbackData: fmt.Sprintf("b_%s", enc)},
+				},
+			},
+		},
+	})
+	if err != nil {
+		log.Println(err)
+	}
 }

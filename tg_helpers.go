@@ -32,6 +32,43 @@ func getVoteButtons(upvotes int, downvotes int) *models.InlineKeyboardMarkup {
 	}
 }
 
+func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMarkup {
+	unbanData, err := marshal(&Item{
+		Action: ACTION_UNBAN,
+		ChatID: chatId,
+		Data:   map[uint8]interface{}{DATA_TYPE_USERID: userId},
+	})
+
+	if err != nil {
+		log.Printf("Can't make unban data %v", err)
+		return &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{},
+		}
+	}
+
+	deleteAllMessages, err := marshal(&Item{
+		Action: ACTION_DELETE_ALL,
+		ChatID: chatId,
+		Data:   map[uint8]interface{}{DATA_TYPE_USERID: userId},
+	})
+
+	if err != nil {
+		log.Printf("Can't make delete all data %v", err)
+		return &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{},
+		}
+	}
+
+	return &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{
+			{
+				{Text: "Разбанить", CallbackData: fmt.Sprintf("b_%s", unbanData)},
+				{Text: "Удалить все сообщения", CallbackData: fmt.Sprintf("b_%s", deleteAllMessages)},
+			},
+		},
+	}
+}
+
 func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool) {
 
 	admins, err := b.GetChatAdministrators(ctx, &bot.GetChatAdministratorsParams{
@@ -82,4 +119,18 @@ func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messag
 			MessageID: removeReplyID,
 		})
 	})
+}
+
+func unbanUser(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (result bool, err error) {
+	result, err = b.UnbanChatMember(ctx, &bot.UnbanChatMemberParams{
+		ChatID:       chatId,
+		UserID:       userId,
+		OnlyIfBanned: true,
+	})
+	return
+}
+
+func deleteAllMessages(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (result bool, err error) {
+
+	return true, nil
 }
