@@ -164,17 +164,18 @@ func getRatingFromUsername(ctx context.Context, username string) (score *ScoreRe
 	return score, nil
 }
 
-func getUser(ctx context.Context, uID int64) (user *UserRecord, err error) {
+func getUser(ctx context.Context, uID int64) (userRecord *UserRecord, err error) {
 	filter := bson.D{
 		{Key: "uid", Value: uID},
 	}
 	result := usersCollection.FindOne(ctx, filter)
+	var user UserRecord
 	err = result.Decode(&user)
 	if err != nil {
 		log.Printf("Can't get user score %v", err)
 		return nil, err
 	}
-	return user, nil
+	return &user, nil
 }
 
 func pushBanLog(ctx context.Context, uID int64, userInfo string, from int64) {
@@ -187,6 +188,21 @@ func saveMessage(ctx context.Context, message *ChatMessage) {
 		log.Printf("Can't insert message %v", err)
 		return
 	}
+}
+
+func getMessageInfo(ctx context.Context, chatID int64, messageID int64) (chatMessage *ChatMessage, err error) {
+	filter := bson.D{
+		{Key: "chatid", Value: chatID},
+		{Key: "messageid", Value: messageID},
+	}
+	result := chatMessages.FindOne(ctx, filter)
+	var message ChatMessage
+	err = result.Decode(&message)
+	if err != nil {
+		log.Printf("Cant't get message info: %v", err)
+		return nil, err
+	}
+	return &message, nil
 }
 
 func getRatingFromMessage(ctx context.Context, chatID int64, messageID int64) (score *ScoreResult, err error) {
