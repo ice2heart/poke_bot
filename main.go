@@ -311,10 +311,12 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		if err != nil {
 			log.Printf("Can't ban user %v %d ", err, s.chatID)
 		}
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    s.chatID,
-			MessageID: int(s.targetMessageID),
-		})
+		if s.targetMessageID != 0 {
+			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    s.chatID,
+				MessageID: int(s.targetMessageID),
+			})
+		}
 		//Delete the vote message
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    s.chatID,
@@ -342,10 +344,13 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		report := fmt.Sprintf("%s с результатом %v", banUsertag, result)
 
 		userMessages, err := getUserLastNthMessages(ctx, s.targetUserID, s.chatID, 20)
+		messageIDs := make([]int, len(userMessages))
+
 		if err == nil && len(userMessages) > 0 {
 
 			text := make([]string, len(userMessages))
 			for i, v := range userMessages {
+				messageIDs[i] = int(v.MessageID)
 				text[i] = escape(v.Text)
 			}
 			escapedText := strings.Join(text, "\n>")
@@ -353,6 +358,13 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n>%s", report, escapedText)
 		}
 		log.Println(report)
+		_, err = b.DeleteMessages(ctx, &bot.DeleteMessagesParams{
+			ChatID:     s.chatID,
+			MessageIDs: messageIDs,
+		})
+		if err != nil {
+			log.Printf("Can't delete messages for chat %d, user %d", s.chatID, s.targetUserID)
+		}
 		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
 		disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
 
