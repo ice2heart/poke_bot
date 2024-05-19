@@ -279,12 +279,6 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		if err != nil {
 			log.Printf("Can't ban user %v %d ", err, s.ChatID)
 		}
-		if s.TargetMessageID != 0 {
-			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-				ChatID:    s.ChatID,
-				MessageID: int(s.TargetMessageID),
-			})
-		}
 		//Delete the vote message
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    s.ChatID,
@@ -325,14 +319,24 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			// TODO: add markdown escape
 			report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n>%s", report, escapedText)
 		}
-		log.Println(report)
-		_, err = b.DeleteMessages(ctx, &bot.DeleteMessagesParams{
-			ChatID:     s.ChatID,
-			MessageIDs: messageIDs,
-		})
-		if err != nil {
-			log.Printf("Can't delete messages for chat %d, user %d", s.ChatID, s.UserID)
+		// log.Println(report)
+		for _, v := range messageIDs {
+			_, err = b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    s.ChatID,
+				MessageID: int(v),
+			})
+			if err != nil {
+				log.Printf("Can't delete messages for chat %d, user %d. IDs: %v. Err: %v", s.ChatID, s.UserID, v, err)
+			}
 		}
+		// this is works like a shit
+		// _, err = b.DeleteMessages(ctx, &bot.DeleteMessagesParams{
+		// 	ChatID:     s.ChatID,
+		// 	MessageIDs: messageIDs,
+		// })
+		// if err != nil {
+		// 	log.Printf("Can't delete messages for chat %d, user %d. IDs: %v. Err: %v", s.ChatID, s.UserID, messageIDs, err)
+		// }
 		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
 		disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
 
