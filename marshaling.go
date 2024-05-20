@@ -17,6 +17,13 @@ type Item struct {
 const (
 	ACTION_UNBAN      uint8 = 1
 	ACTION_DELETE_ALL uint8 = 2
+	// admin menu
+	ACTION_SHOW_CHAT_LIST uint8 = 3
+	ACTION_SHOW_CHAT_ID   uint8 = 4
+	ACTION_PAUSE_CHAT     uint8 = 5
+	ACTION_UNPAUSE_CHAT   uint8 = 6
+	ACTION_ENABLED_LOG    uint8 = 7
+	ACTION_DISABLED_LOG   uint8 = 8
 )
 
 const (

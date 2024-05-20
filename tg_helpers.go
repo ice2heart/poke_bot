@@ -15,6 +15,11 @@ var (
 	publicGroupRX = regexp.MustCompile(`^-100`)
 )
 
+type Chat struct {
+	ChatID   int64
+	ChatName string
+}
+
 func makePublicGroupString(groupID int64) string {
 	// https://gist.github.com/nafiesl/4ad622f344cd1dc3bb1ecbe468ff9f8a
 	// groudid has leeading -100
@@ -69,6 +74,110 @@ func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMar
 	}
 }
 
+func getChatListKeyboard(chatList []Chat) *models.InlineKeyboardMarkup {
+	buttons := make([][]models.InlineKeyboardButton, len(chatList)+1)
+	for k, v := range chatList {
+		showChat, err := marshal(&Item{
+			Action: ACTION_SHOW_CHAT_ID,
+			ChatID: v.ChatID,
+		})
+		if err != nil {
+			log.Printf("Make chat data error: %v", err)
+			continue
+		}
+		buttons[k] = []models.InlineKeyboardButton{{Text: v.ChatName, CallbackData: fmt.Sprintf("b_%s", showChat)}}
+	}
+	refresh, err := marshal(&Item{
+		Action: ACTION_SHOW_CHAT_LIST,
+	})
+	if err != nil {
+		log.Printf("Make chat data error: %v", err)
+		return nil
+	}
+	buttons[len(chatList)] = []models.InlineKeyboardButton{{Text: "🗘 обновить", CallbackData: fmt.Sprintf("b_%s", refresh)}}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: buttons}
+
+}
+
+func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
+	pauseChat, err := marshal(&Item{
+		Action: ACTION_PAUSE_CHAT,
+		ChatID: chatID,
+	})
+	if err != nil {
+		log.Printf("Can't make a pause button %v", err)
+		return &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{},
+		}
+	}
+	unPauseChat, err := marshal(&Item{
+		Action: ACTION_UNPAUSE_CHAT,
+		ChatID: chatID,
+	})
+	if err != nil {
+		log.Printf("Can't make a unpause button %v", err)
+		return &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{},
+		}
+	}
+	enableLog, err := marshal(&Item{
+		Action: ACTION_ENABLED_LOG,
+		ChatID: chatID,
+	})
+	if err != nil {
+		log.Printf("Can't make a enable log button %v", err)
+		return &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{},
+		}
+	}
+	disableLog, err := marshal(&Item{
+		Action: ACTION_DISABLED_LOG,
+		ChatID: chatID,
+	})
+	if err != nil {
+		log.Printf("Can't make a disble log button %v", err)
+		return &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{},
+		}
+	}
+	refresh, err := marshal(&Item{
+		Action: ACTION_SHOW_CHAT_LIST,
+	})
+	if err != nil {
+		log.Printf("Can't make a back button %v", err)
+		return &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{},
+		}
+	}
+	return &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{
+			{
+				{Text: "Поставить чат на паузу", CallbackData: fmt.Sprintf("b_%s", pauseChat)},
+				{Text: "Снять чат с паузы", CallbackData: fmt.Sprintf("b_%s", unPauseChat)},
+			},
+			{
+				{Text: "Включить логирование", CallbackData: fmt.Sprintf("b_%s", enableLog)},
+				{Text: "Выключить логирование", CallbackData: fmt.Sprintf("b_%s", disableLog)},
+			},
+			{
+				{Text: "К списку чатов", CallbackData: fmt.Sprintf("b_%s", refresh)},
+			},
+		},
+	}
+
+}
+
+func getChatName(ctx context.Context, b *bot.Bot, chatID int64) string {
+	// TODO: make it cacheble
+	chatInfo, err := b.GetChat(ctx, &bot.GetChatParams{
+		ChatID: chatID,
+	})
+	if err != nil {
+		return fmt.Sprintf("Unknown chat with id %d", chatID)
+	}
+	return chatInfo.Title
+}
+
 func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool) {
 
 	admins, err := b.GetChatAdministrators(ctx, &bot.GetChatAdministratorsParams{
@@ -92,7 +201,8 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool)
 	return ret
 }
 
-func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messageId int, text string) {
+func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messageId int, text string, deleteOrigin ...bool) {
+
 	reply, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    chatId,
 		Text:      text,
@@ -110,10 +220,12 @@ func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messag
 	removeReplyID := reply.ID
 	removeOriginalID := messageId
 	go dealy(ctx, 30, func() {
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    removeChatID,
-			MessageID: removeOriginalID,
-		})
+		if len(deleteOrigin) == 0 {
+			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    removeChatID,
+				MessageID: removeOriginalID,
+			})
+		}
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    removeChatID,
 			MessageID: removeReplyID,

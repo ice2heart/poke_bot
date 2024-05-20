@@ -121,6 +121,7 @@ func main() {
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/ban", bot.MatchTypePrefix, banHandler)
 	myBot.RegisterHandler(bot.HandlerTypeCallbackQueryData, "b_", bot.MatchTypePrefix, actionCallbackHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/test", bot.MatchTypePrefix, testHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypePrefix, startHandler)
 	log.Printf("Starting %s", me.Username)
 	// each 12 hours update admins list
 	go ticker(ctx, 720, getChatAdmins)
@@ -555,11 +556,11 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 				banInfo.TargetMessageID = pokeMessageID
 			}
 		}
-		banInfo.OwnerID = update.Message.From.ID
-		banInfo.RequestMessageID = int64(update.Message.ID)
 		if banInfo == nil {
 			continue
 		}
+		banInfo.OwnerID = update.Message.From.ID
+		banInfo.RequestMessageID = int64(update.Message.ID)
 		if checkForDuplicates(ctx, chatId, banInfo.UserID, b, update) {
 			continue
 		}
@@ -579,24 +580,22 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 		CallbackQueryID: update.CallbackQuery.ID,
 		ShowAlert:       false,
 	})
-	log.Println(len(update.CallbackQuery.Data))
+	// log.Println(len(update.CallbackQuery.Data))
 	data, err := unmarshal(update.CallbackQuery.Data[2:])
 	if err != nil {
 		log.Printf("Action is parsed bad %v", err)
 		return
 	}
 
-	chatAdmins := checkAdmins(ctx, b, data.ChatID)
-	_, rep := chatAdmins[update.CallbackQuery.From.ID]
-
-	if !rep {
-		log.Printf("User %d try to use admin prev for chat %d", update.CallbackQuery.From.ID, data.ChatID)
-		return
-	}
-
 	switch data.Action {
 	case ACTION_UNBAN:
 		{
+			chatAdmins := checkAdmins(ctx, b, data.ChatID)
+			_, rep := chatAdmins[update.CallbackQuery.From.ID]
+			if !rep {
+				log.Printf("User %d try to use admin prev for chat %d", update.CallbackQuery.From.ID, data.ChatID)
+				return
+			}
 			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
 			if !ok {
 				log.Printf("TODO replace to message to user: err there are no userid")
@@ -622,6 +621,12 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 		}
 	case ACTION_DELETE_ALL:
 		{
+			chatAdmins := checkAdmins(ctx, b, data.ChatID)
+			_, rep := chatAdmins[update.CallbackQuery.From.ID]
+			if !rep {
+				log.Printf("User %d try to use admin prev for chat %d", update.CallbackQuery.From.ID, data.ChatID)
+				return
+			}
 			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
 			if !ok {
 				log.Printf("TODO replace to message to user: err there are no userid")
@@ -638,10 +643,82 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			}
 
 		}
+	case ACTION_SHOW_CHAT_LIST:
+		{
+			log.Printf("ACTION_SHOW_CHAT_LIST user id %d", update.CallbackQuery.From.ID)
+			chats := getChatsForAdmin(ctx, b, update.CallbackQuery.From.ID)
+			log.Printf("chats %v", chats)
+			_, err := b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID:   update.CallbackQuery.Message.Message.ID,
+				Text:        "Control pannel",
+				ReplyMarkup: getChatListKeyboard(chats),
+			})
+			if err != nil {
+				log.Printf("Can't update message: %v", err)
+			}
+		}
+	case ACTION_SHOW_CHAT_ID:
+		{
+			log.Printf("ACTION_SHOW_CHAT_ID %d", data.ChatID)
+			chatName := getChatName(ctx, b, data.ChatID)
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID:   update.CallbackQuery.Message.Message.ID,
+				Text:        fmt.Sprintf("Действия для чата %s", chatName),
+				ReplyMarkup: getChatActionsKeyboard(data.ChatID),
+			})
+		}
+	case ACTION_PAUSE_CHAT:
+		{
+			log.Printf("ACTION_PAUSE_CHAT %d", data.ChatID)
+			chatAdmins := checkAdmins(ctx, b, data.ChatID)
+			_, rep := chatAdmins[update.CallbackQuery.From.ID]
+			if !rep {
+				log.Printf("User %d try to use admin prev for chat %d", update.CallbackQuery.From.ID, data.ChatID)
+				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Необходимо быть админом для чата")
+				return
+			}
+			chatSettings, rep := settings[data.ChatID]
+			if !rep {
+				chatSettings = &DyncmicSetting{
+					ChatID: data.ChatID,
+					Pause:  false,
+				}
+			}
+			chatSettings.Pause = true
+			settings[data.ChatID] = chatSettings
+			writeChatSettings(ctx, data.ChatID, chatSettings)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Пауза активированна", false)
+		}
+	case ACTION_UNPAUSE_CHAT:
+		{
+			log.Printf("ACTION_UNPAUSE_CHAT %d", data.ChatID)
+			chatAdmins := checkAdmins(ctx, b, data.ChatID)
+			_, rep := chatAdmins[update.CallbackQuery.From.ID]
+			if !rep {
+				log.Printf("User %d try to use admin prev for chat %d", update.CallbackQuery.From.ID, data.ChatID)
+				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Необходимо быть админом для чата")
+				return
+			}
+			chatSettings, rep := settings[data.ChatID]
+			if !rep {
+				chatSettings = &DyncmicSetting{
+					ChatID: data.ChatID,
+					Pause:  false,
+				}
+			}
+			chatSettings.Pause = false
+			settings[data.ChatID] = chatSettings
+			writeChatSettings(ctx, data.ChatID, chatSettings)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Пауза деактивированна", false)
+		}
 	}
 }
 
 func testHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+
+	log.Printf("test handler chatid %d userid %d\n", update.Message.Chat.ID, update.Message.From.ID)
 	chatId := update.Message.Chat.ID
 	publicInt, _ := strconv.ParseInt(makePublicGroupString(chatId), 10, 64)
 
@@ -676,4 +753,43 @@ func testHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if err != nil {
 		log.Println(err)
 	}
+}
+
+func getChatsForAdmin(ctx context.Context, b *bot.Bot, userID int64) []Chat {
+	chats := make([]Chat, 0, 4)
+	for k, v := range admins {
+		_, ok := v[userID]
+		if !ok {
+			continue
+		}
+		name := getChatName(ctx, b, k)
+		chats = append(chats, Chat{
+			ChatID:   k,
+			ChatName: name,
+		})
+	}
+	return chats
+}
+
+func startHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	chatID := update.Message.Chat.ID
+	userID := update.Message.From.ID
+
+	if chatID == userID {
+		// admin menu
+		chats := getChatsForAdmin(ctx, b, userID)
+		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:      chatID,
+			Text:        "Control pannel",
+			ParseMode:   models.ParseModeMarkdown,
+			ReplyMarkup: getChatListKeyboard(chats),
+		})
+		if err != nil {
+			log.Println(err)
+		}
+		return
+	}
+	// chat menu
+	return
+
 }
