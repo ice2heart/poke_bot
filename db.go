@@ -58,8 +58,9 @@ type ScoreResult struct {
 }
 
 type DyncmicSetting struct {
-	ChatID int64
-	Pause  bool
+	ChatID        int64
+	Pause         bool
+	LogRecipients []int64
 }
 
 func initDb(ctx context.Context, connectionLine string, dbName string) {

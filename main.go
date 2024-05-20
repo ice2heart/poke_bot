@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -159,8 +160,9 @@ func getChatSettings(ctx context.Context, chatId int64) (chatSettings *DyncmicSe
 	chatSettings, prs := settings[chatId]
 	if !prs {
 		chatSettings = &DyncmicSetting{
-			ChatID: chatId,
-			Pause:  false,
+			ChatID:        chatId,
+			Pause:         false,
+			LogRecipients: []int64{},
 		}
 		writeChatSettings(ctx, chatId, chatSettings)
 	}
@@ -280,6 +282,11 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		if err != nil {
 			log.Printf("Can't ban user %v %d ", err, s.ChatID)
 		}
+		//Delete the target
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    s.ChatID,
+			MessageID: int(s.TargetMessageID),
+		})
 		//Delete the vote message
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    s.ChatID,
@@ -341,17 +348,23 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
 		disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
 
-		// TODO: delete user and user's messages
-		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID:             198082233,
-			Text:               report,
-			ParseMode:          models.ParseModeMarkdown,
-			ReplyMarkup:        getBanMessageKeyboard(s.ChatID, s.UserID),
-			LinkPreviewOptions: disablePreview,
-		})
-		if err != nil {
-			log.Printf("Can't send report %v", err)
+		chatSettings := getChatSettings(ctx, s.ChatID)
+
+		for _, v := range chatSettings.LogRecipients {
+
+			_, err = b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID:             v,
+				Text:               report,
+				ParseMode:          models.ParseModeMarkdown,
+				ReplyMarkup:        getBanMessageKeyboard(s.ChatID, s.UserID),
+				LinkPreviewOptions: disablePreview,
+			})
+			if err != nil {
+				log.Printf("Can't send report %v", err)
+			}
 		}
+		// TODO: delete user and user's messages
+
 		return
 	}
 	// Downvoted
@@ -455,14 +468,7 @@ func pauseHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		return
 	}
 	log.Printf("Pause handler: %s", update.Message.Text)
-	chatSettings, rep := settings[update.Message.Chat.ID]
-	if !rep {
-		// make func
-		chatSettings = &DyncmicSetting{
-			ChatID: update.Message.Chat.ID,
-			Pause:  false,
-		}
-	}
+	chatSettings := getChatSettings(ctx, update.Message.Chat.ID)
 	var message string
 	if strings.Contains(update.Message.Text, "enable") {
 		chatSettings.Pause = true
@@ -590,10 +596,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 	switch data.Action {
 	case ACTION_UNBAN:
 		{
-			chatAdmins := checkAdmins(ctx, b, data.ChatID)
-			_, rep := chatAdmins[update.CallbackQuery.From.ID]
-			if !rep {
-				log.Printf("User %d try to use admin prev for chat %d", update.CallbackQuery.From.ID, data.ChatID)
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
 			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
@@ -621,10 +624,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 		}
 	case ACTION_DELETE_ALL:
 		{
-			chatAdmins := checkAdmins(ctx, b, data.ChatID)
-			_, rep := chatAdmins[update.CallbackQuery.From.ID]
-			if !rep {
-				log.Printf("User %d try to use admin prev for chat %d", update.CallbackQuery.From.ID, data.ChatID)
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
 			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
@@ -672,20 +672,10 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 	case ACTION_PAUSE_CHAT:
 		{
 			log.Printf("ACTION_PAUSE_CHAT %d", data.ChatID)
-			chatAdmins := checkAdmins(ctx, b, data.ChatID)
-			_, rep := chatAdmins[update.CallbackQuery.From.ID]
-			if !rep {
-				log.Printf("User %d try to use admin prev for chat %d", update.CallbackQuery.From.ID, data.ChatID)
-				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Необходимо быть админом для чата")
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
-			chatSettings, rep := settings[data.ChatID]
-			if !rep {
-				chatSettings = &DyncmicSetting{
-					ChatID: data.ChatID,
-					Pause:  false,
-				}
-			}
+			chatSettings := getChatSettings(ctx, data.ChatID)
 			chatSettings.Pause = true
 			settings[data.ChatID] = chatSettings
 			writeChatSettings(ctx, data.ChatID, chatSettings)
@@ -694,24 +684,50 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 	case ACTION_UNPAUSE_CHAT:
 		{
 			log.Printf("ACTION_UNPAUSE_CHAT %d", data.ChatID)
-			chatAdmins := checkAdmins(ctx, b, data.ChatID)
-			_, rep := chatAdmins[update.CallbackQuery.From.ID]
-			if !rep {
-				log.Printf("User %d try to use admin prev for chat %d", update.CallbackQuery.From.ID, data.ChatID)
-				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Необходимо быть админом для чата")
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
-			chatSettings, rep := settings[data.ChatID]
-			if !rep {
-				chatSettings = &DyncmicSetting{
-					ChatID: data.ChatID,
-					Pause:  false,
-				}
-			}
+			chatSettings := getChatSettings(ctx, data.ChatID)
 			chatSettings.Pause = false
 			settings[data.ChatID] = chatSettings
 			writeChatSettings(ctx, data.ChatID, chatSettings)
 			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Пауза деактивированна", false)
+		}
+	case ACTION_ENABLED_LOG:
+		{
+			log.Printf("ACTION_ENABLED_LOG %d", data.ChatID)
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+				return
+			}
+			userID := update.CallbackQuery.From.ID
+			chatSettings := getChatSettings(ctx, data.ChatID)
+			if slices.Contains(chatSettings.LogRecipients, userID) {
+				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы уже в списке на получение отчётов", false)
+				return
+			}
+			chatSettings.LogRecipients = append(chatSettings.LogRecipients, userID)
+			settings[data.ChatID] = chatSettings
+			writeChatSettings(ctx, data.ChatID, chatSettings)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы добавлены в список на получение отчётов", false)
+		}
+	case ACTION_DISABLED_LOG:
+		{
+			log.Printf("ACTION_DISABLED_LOG %d", data.ChatID)
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+				return
+			}
+			userID := update.CallbackQuery.From.ID
+			chatSettings := getChatSettings(ctx, data.ChatID)
+			index := slices.Index(chatSettings.LogRecipients, userID)
+			if index == -1 {
+				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы не будете получать отчёты", false)
+				return
+			}
+			chatSettings.LogRecipients = slices.Delete(chatSettings.LogRecipients, index, index+1)
+			settings[data.ChatID] = chatSettings
+			writeChatSettings(ctx, data.ChatID, chatSettings)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы не будете получать отчёты", false)
+
 		}
 	}
 }

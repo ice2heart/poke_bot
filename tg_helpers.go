@@ -51,11 +51,11 @@ func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMar
 		}
 	}
 
-	deleteAllMessages, err := marshal(&Item{
-		Action: ACTION_DELETE_ALL,
-		ChatID: chatId,
-		Data:   map[uint8]interface{}{DATA_TYPE_USERID: userId},
-	})
+	// deleteAllMessages, err := marshal(&Item{
+	// 	Action: ACTION_DELETE_ALL,
+	// 	ChatID: chatId,
+	// 	Data:   map[uint8]interface{}{DATA_TYPE_USERID: userId},
+	// })
 
 	if err != nil {
 		log.Printf("Can't make delete all data %v", err)
@@ -68,7 +68,7 @@ func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMar
 		InlineKeyboard: [][]models.InlineKeyboardButton{
 			{
 				{Text: "Разбанить", CallbackData: fmt.Sprintf("b_%s", unbanData)},
-				{Text: "Удалить все сообщения", CallbackData: fmt.Sprintf("b_%s", deleteAllMessages)},
+				// {Text: "Удалить все сообщения", CallbackData: fmt.Sprintf("b_%s", deleteAllMessages)},
 			},
 		},
 	}
@@ -245,4 +245,15 @@ func unbanUser(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (res
 func deleteAllMessages(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (result bool, err error) {
 
 	return true, nil
+}
+
+func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, messageChatID int64, messageID int) bool {
+	chatAdmins := checkAdmins(ctx, b, chatID)
+	_, rep := chatAdmins[userID]
+	if !rep {
+		log.Printf("User %d try to use admin prev for chat %d", userID, chatID)
+		systemAnswerToMessage(ctx, b, messageChatID, messageID, "Необходимо быть админом для чата")
+		return false
+	}
+	return true
 }
