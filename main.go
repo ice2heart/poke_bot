@@ -34,6 +34,11 @@ var (
 
 	settings map[int64]*DyncmicSetting
 	admins   map[int64]map[int64]bool
+
+	ANSWER_OWN             string = "Нельзя голосовать за свою голосовалку"
+	ANSWER_NOTBAN          string = "Против бана. Голос учтён"
+	ANSWER_BAN             string = "За бан. Голос учтён"
+	ANSWER_SOMETHING_WRONG string = "что то пошло не так"
 )
 
 // go dealy(ctx, 10, func() { log.Printf("Delayed call") })
@@ -227,10 +232,15 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 	// and we're handling it. Otherwise, Telegram might retry sending the update repetitively
 	// as it thinks the callback query doesn't reach to our application. learn more by
 	// reading the footnote of the https://core.telegram.org/bots/api#callbackquery type.
-	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-		CallbackQueryID: update.CallbackQuery.ID,
-		ShowAlert:       false,
-	})
+	var answer_message *string
+	answer_message = &ANSWER_SOMETHING_WRONG
+	defer func() {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			ShowAlert:       false,
+			Text:            *answer_message,
+		})
+	}()
 	log.Printf("Get vote %s, from message id: %d chatid: %d", update.CallbackQuery.Data, update.CallbackQuery.Message.Message.ID, update.CallbackQuery.Message.Message.Chat.ID)
 	chatSession, ok := sessions[update.CallbackQuery.Message.Message.Chat.ID]
 	if !ok {
@@ -255,10 +265,13 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 
 	if s.OwnerID == update.CallbackQuery.From.ID && superPoke == 0 {
 		log.Println("try to vote to it's own")
+		answer_message = &ANSWER_OWN
 		return
 	}
 	voteResult := 1
+	answer_message = &ANSWER_BAN
 	if update.CallbackQuery.Data == "button_downvote" {
+		answer_message = &ANSWER_NOTBAN
 		voteResult = -1
 	}
 	s.Voiters[update.CallbackQuery.From.ID] = int8(voteResult)
