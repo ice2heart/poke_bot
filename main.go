@@ -143,16 +143,38 @@ func getChatAdmins(ctx context.Context) {
 
 func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		// jcart, _ := json.MarshalIndent(update, "", "\t")
+		// fmt.Println(string(jcart))
+
 		if update.Message != nil {
 			// log.Printf("%s say: %s, lang code %s", update.Message.From.FirstName, update.Message.Text, update.Message.From.LanguageCode)
-			userPlusOneMessage(ctx, update.Message.From.ID, update.Message.From.Username, fmt.Sprintf("%s %s", update.Message.From.FirstName, update.Message.From.LastName))
 			now := time.Now()
+
+			userID := update.Message.From.ID
+			userName := update.Message.From.Username
+			altUserName := fmt.Sprintf("%s %s", update.Message.From.FirstName, update.Message.From.LastName)
+
+			if update.Message.SenderChat != nil {
+				userID = update.Message.SenderChat.ID
+				userName = update.Message.SenderChat.Username
+				altUserName = update.Message.SenderChat.Title
+			}
+
+			storedText := update.Message.Text
+			if update.Message.Sticker != nil {
+				storedText = fmt.Sprintf("Sticker: %s, pack: %s", update.Message.Sticker.Emoji, update.Message.Sticker.SetName)
+			}
+			if update.Message.Photo != nil {
+				storedText = "Photo"
+			}
+
+			userPlusOneMessage(ctx, userID, userName, altUserName)
 			saveMessage(ctx, &ChatMessage{
 				MessageID: int64(update.Message.ID),
 				ChatID:    update.Message.Chat.ID,
-				UserID:    update.Message.From.ID,
-				UserName:  update.Message.From.Username,
-				Text:      update.Message.Text,
+				UserID:    userID,
+				UserName:  userName,
+				Text:      storedText,
 				Date:      uint64(now.AddDate(0, 0, MESSAGE_TTL_DAYS).UnixMilli()),
 			})
 
@@ -441,7 +463,8 @@ func handler_poke(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 		banInfo, err := getBanInfo(ctx, chatId, pokeMessageID)
 		if err != nil {
-			systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извените сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"")
+			log.Printf("Can't make a baninfo: %v", err)
+			systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извините сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"")
 			continue
 		}
 		banInfo.OwnerID = update.Message.From.ID
@@ -569,7 +592,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 				}
 				banInfo, err = getBanInfo(ctx, chatId, pokeMessageID)
 				if err != nil {
-					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извените сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"")
+					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извините сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"")
 					continue
 				}
 				banInfo.TargetMessageID = pokeMessageID
