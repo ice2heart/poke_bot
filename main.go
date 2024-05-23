@@ -94,7 +94,6 @@ func main() {
 	// 	log.Printf("test")
 	// })
 
-	// TODO: move to env
 	initDb(ctx, mongoAddr, dbName)
 	settings = readChatsSettings(ctx)
 
@@ -345,7 +344,6 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		} else {
 			banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
 		}
-		// TODO: unban link
 		report := fmt.Sprintf("%s с результатом %v", banUsertag, result)
 
 		userMessages, err := getUserLastNthMessages(ctx, s.UserID, s.ChatID, 20)
@@ -353,14 +351,18 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 
 		if err == nil && len(userMessages) > 0 {
 
-			text := make([]string, len(userMessages))
+			text := make([]string, 0, len(userMessages))
 			for i, v := range userMessages {
 				messageIDs[i] = int(v.MessageID)
-				text[i] = escape(v.Text)
+
+				lines := strings.Split(v.Text, "\n")
+				for _, line := range lines {
+					line = fmt.Sprintf(">%s", escape(line))
+					text = append(text, line)
+				}
 			}
-			escapedText := strings.Join(text, "\n>")
-			// TODO: add markdown escape
-			report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n>%s", report, escapedText)
+			escapedText := strings.Join(text, "\n")
+			report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
 		}
 		// log.Println(report)
 		for _, v := range messageIDs {
@@ -544,6 +546,10 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if chatSettings.Pause {
 		onPauseMessage(ctx, b, update.Message)
 		return
+	}
+
+	if len(update.Message.Entities) == 1 {
+		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape(fmt.Sprintf("Для использования бота необходимо указать ему ссылку на сообщение или указать пользователя\nНапример:\n@%s https://t.me/c/1657123097/2854347\n/ban https://t.me/c/1657123097/2854347\n/ban @username", myID)))
 	}
 
 	for _, v := range update.Message.Entities {
