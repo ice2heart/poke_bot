@@ -43,9 +43,9 @@ func makeBanMessage(b *BanInfo) string {
 
 	var username string
 	if b.UserName == "" {
-		username = fmt.Sprintf("[%s](tg://user?id=%d)", b.ProfileName, b.UserID)
+		username = fmt.Sprintf("[%s](tg://user?id=%d)", escape(b.ProfileName), b.UserID)
 	} else {
-		username = fmt.Sprintf("@%s", strings.Replace(b.UserName, "_", "\\_", -1))
+		username = fmt.Sprintf("@%s", escape(b.UserName))
 	}
 	messageLink := fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
 
