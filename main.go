@@ -440,12 +440,12 @@ func handler_poke(ctx context.Context, b *bot.Bot, update *models.Update) {
 		}
 
 		banInfo, err := getBanInfo(ctx, chatId, pokeMessageID)
-		banInfo.OwnerID = update.Message.From.ID
-		banInfo.RequestMessageID = int64(update.Message.ID)
 		if err != nil {
 			systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извените сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"")
 			continue
 		}
+		banInfo.OwnerID = update.Message.From.ID
+		banInfo.RequestMessageID = int64(update.Message.ID)
 		if checkForDuplicates(ctx, chatId, banInfo.UserID, b, update) {
 			continue
 		}
