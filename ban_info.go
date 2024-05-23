@@ -49,7 +49,7 @@ func makeBanMessage(b *BanInfo) string {
 	}
 	messageLink := fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
 
-	return fmt.Sprintf("Голосуем за бан %s \nНеобходимо %d голосов\n%s\n%s", username, b.Score, messageLink, text)
+	return fmt.Sprintf("Голосуем за бан %s \nНеобходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
 }
 
 func calculateRequiredRating(userScore uint32) (requiredScore int16) {
