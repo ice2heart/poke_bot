@@ -31,7 +31,7 @@ const (
 func makeBanMessage(b *BanInfo) string {
 	text := b.LatMessage
 	if len(text) > 200 {
-		text = text[:200]
+		text = firstN(text, 200)
 	}
 	lines := strings.Split(text, "\n")
 	newLines := make([]string, len(lines))
