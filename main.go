@@ -344,7 +344,20 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		} else {
 			banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
 		}
-		report := fmt.Sprintf("%s с результатом %v", banUsertag, result)
+		resultText := "Успешно забанен"
+		if !result {
+			resultText = "Не смог забанить"
+		}
+		maker, err := getUser(ctx, s.OwnerID)
+		ownerInfo := ""
+		if err == nil {
+			if len(user.Username) == 0 {
+				ownerInfo = fmt.Sprintf("Создал голосовалку [%s](tg://user?id=%d)", maker.AltUsername, maker.Uid)
+			} else {
+				ownerInfo = fmt.Sprintf("Создал голосовалку @%s", escape(maker.Username))
+			}
+		}
+		report := fmt.Sprintf("%s %s\n%s", resultText, banUsertag, ownerInfo)
 
 		userMessages, err := getUserLastNthMessages(ctx, s.UserID, s.ChatID, 20)
 		messageIDs := make([]int, len(userMessages))
@@ -400,8 +413,6 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 				log.Printf("Can't send report %v", err)
 			}
 		}
-		// TODO: delete user and user's messages
-
 		return
 	}
 	// Downvoted
