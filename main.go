@@ -351,7 +351,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		maker, err := getUser(ctx, s.OwnerID)
 		ownerInfo := ""
 		if err == nil {
-			if len(user.Username) == 0 {
+			if len(maker.Username) == 0 {
 				ownerInfo = fmt.Sprintf("Создал голосовалку [%s](tg://user?id=%d)", maker.AltUsername, maker.Uid)
 			} else {
 				ownerInfo = fmt.Sprintf("Создал голосовалку @%s", escape(maker.Username))
