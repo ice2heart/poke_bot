@@ -164,7 +164,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 				storedText = fmt.Sprintf("Sticker: %s, pack: %s", update.Message.Sticker.Emoji, update.Message.Sticker.SetName)
 			}
 			if update.Message.Photo != nil {
-				storedText = "Photo"
+				storedText = fmt.Sprintf("Photo, text:\n%s", escape(update.Message.Caption))
 			}
 
 			userPlusOneMessage(ctx, userID, userName, altUserName)

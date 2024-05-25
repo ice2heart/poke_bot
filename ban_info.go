@@ -34,7 +34,7 @@ func makeBanMessage(b *BanInfo) string {
 		text = firstN(text, 200)
 	}
 	lines := strings.Split(text, "\n")
-	newLines := make([]string, len(lines))
+	newLines := make([]string, 0, len(lines))
 	for _, line := range lines {
 		line = fmt.Sprintf(">%s", escape(line))
 		newLines = append(newLines, line)
