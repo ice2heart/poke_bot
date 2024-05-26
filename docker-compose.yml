@@ -3,6 +3,7 @@ version: '3.8'
 
 services:
   poke_bot:
+    restart: unless-stopped
     image: ghcr.io/ice2heart/poke_bot:latest
     env_file:
       - .env
@@ -10,6 +11,7 @@ services:
       - mongodb
 
   mongodb:
+    restart: unless-stopped
     image: mongo
     volumes:
       - dbdata6:/data/db

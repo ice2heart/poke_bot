@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -262,6 +263,15 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			Text:            *answer_message,
 		})
 	}()
+	if update.CallbackQuery == nil || update.CallbackQuery.Message.Message == nil {
+		jcart, _ := json.MarshalIndent(update, "", "\t")
+		log.Println(string(jcart))
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: 198082233,
+			Text:   fmt.Sprintf("something gose wrong %s", string(jcart)),
+		})
+		return
+	}
 	log.Printf("Get vote %s, from message id: %d chatid: %d", update.CallbackQuery.Data, update.CallbackQuery.Message.Message.ID, update.CallbackQuery.Message.Message.Chat.ID)
 	chatSession, ok := sessions[update.CallbackQuery.Message.Message.Chat.ID]
 	if !ok {
