@@ -180,7 +180,11 @@ func getUser(ctx context.Context, uID int64) (userRecord *UserRecord, err error)
 	return &user, nil
 }
 
-func pushBanLog(ctx context.Context, uID int64, userInfo string, from int64) {
+func pushBanLog(ctx context.Context, banInfo *BanInfo) {
+	_, err := banLogs.InsertOne(ctx, banInfo)
+	if err != nil {
+		log.Printf("Can't insert ban info %v", err)
+	}
 
 }
 

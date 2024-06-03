@@ -406,9 +406,9 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		ownerInfo := ""
 		if err == nil {
 			if len(maker.Username) == 0 {
-				ownerInfo = fmt.Sprintf("Создал голосовалку [%s](tg://user?id=%d)", maker.AltUsername, maker.Uid)
+				ownerInfo = fmt.Sprintf("Автор голосовалки [%s](tg://user?id=%d)", maker.AltUsername, maker.Uid)
 			} else {
-				ownerInfo = fmt.Sprintf("Создал голосовалку @%s", escape(maker.Username))
+				ownerInfo = fmt.Sprintf("Автор голосовалки @%s", escape(maker.Username))
 			}
 		}
 		report := fmt.Sprintf("%s %s\n%s", resultText, banUsertag, ownerInfo)
@@ -449,6 +449,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		// if err != nil {
 		// 	log.Printf("Can't delete messages for chat %d, user %d. IDs: %v. Err: %v", s.ChatID, s.UserID, messageIDs, err)
 		// }
+		pushBanLog(ctx, s)
 		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
 		disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
 
