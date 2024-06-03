@@ -51,24 +51,10 @@ func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMar
 		}
 	}
 
-	// deleteAllMessages, err := marshal(&Item{
-	// 	Action: ACTION_DELETE_ALL,
-	// 	ChatID: chatId,
-	// 	Data:   map[uint8]interface{}{DATA_TYPE_USERID: userId},
-	// })
-
-	if err != nil {
-		log.Printf("Can't make delete all data %v", err)
-		return &models.InlineKeyboardMarkup{
-			InlineKeyboard: [][]models.InlineKeyboardButton{},
-		}
-	}
-
 	return &models.InlineKeyboardMarkup{
 		InlineKeyboard: [][]models.InlineKeyboardButton{
 			{
 				{Text: "Разбанить", CallbackData: fmt.Sprintf("b_%s", unbanData)},
-				// {Text: "Удалить все сообщения", CallbackData: fmt.Sprintf("b_%s", deleteAllMessages)},
 			},
 		},
 	}

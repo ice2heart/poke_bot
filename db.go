@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log"
 	"strings"
 
@@ -206,90 +205,6 @@ func getMessageInfo(ctx context.Context, chatID int64, messageID int64) (chatMes
 		return nil, err
 	}
 	return &message, nil
-}
-
-func getRatingFromMessage(ctx context.Context, chatID int64, messageID int64) (score *ScoreResult, err error) {
-	getMessage := bson.D{
-		{Key: "$match",
-			Value: bson.D{
-				{Key: "chatid", Value: chatID},
-				{Key: "messageid", Value: messageID},
-			},
-		},
-	}
-	lookupUser := bson.D{
-		{Key: "$lookup",
-			Value: bson.D{
-				{Key: "from", Value: "users"},
-				{Key: "localField", Value: "userid"},
-				{Key: "foreignField", Value: "uid"},
-				{Key: "as", Value: "result"},
-			},
-		},
-	}
-	unwindUser := bson.D{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$result"}}}}
-	calculateRating := bson.D{
-		{Key: "$set",
-			Value: bson.D{
-				{Key: "rating",
-					Value: bson.D{
-						{Key: "$add",
-							Value: bson.A{
-								bson.D{
-									{Key: "$ifNull",
-										Value: bson.A{
-											"$result.counter",
-											0,
-										},
-									},
-								},
-								bson.D{
-									{Key: "$multiply",
-										Value: bson.A{
-											bson.D{
-												{Key: "$ifNull",
-													Value: bson.A{
-														"$result.voteCounter",
-														0,
-													},
-												},
-											},
-											VOTE_RATING_MULTIPLY,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	clearOutput := bson.D{
-		{Key: "$project",
-			Value: bson.D{
-				{Key: "rating", Value: 1},
-				{Key: "userid", Value: 1},
-			},
-		},
-	}
-	cursor, err := chatMessages.Aggregate(ctx, mongo.Pipeline{getMessage, lookupUser, unwindUser, calculateRating, clearOutput})
-	if err != nil {
-		log.Printf("Can't get proper rating for message %v", err)
-		return nil, err
-	}
-
-	var results []ScoreResult
-	if err = cursor.All(ctx, &results); err != nil {
-		log.Printf("Problem with parsing cursor")
-		return nil, errors.New("mongo: can't find message")
-	}
-	if len(results) == 0 {
-		log.Printf("Message not found")
-		return nil, errors.New("mongo: can't find message")
-	}
-	log.Printf("Get rating %d for user %d", results[0].Rating, results[0].Userid)
-	return &results[0], nil
 }
 
 func readChatsSettings(ctx context.Context) (ret map[int64]*DyncmicSetting) {

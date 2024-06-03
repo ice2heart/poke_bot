@@ -26,7 +26,6 @@ var (
 	myBot *bot.Bot
 
 	myID      string
-	mainRegex *regexp.Regexp
 	linkRegex *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+))`)
 
 	mdRegex *regexp.Regexp = regexp.MustCompile(`(['_~>#!=\-])`)
@@ -91,16 +90,11 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	// go ticker(ctx, 5, func() {
-	// 	log.Printf("test")
-	// })
-
 	initDb(ctx, mongoAddr, dbName)
 	settings = readChatsSettings(ctx)
 
 	opts := []bot.Option{
 		bot.WithDefaultHandler(handler),
-		// bot.WithDebug(),
 		bot.WithMiddlewares(logMessagesMiddleware),
 		bot.WithCallbackQueryDataHandler("button", bot.MatchTypePrefix, voteCallbackHandler),
 	}
@@ -119,8 +113,7 @@ func main() {
 	admins = make(map[int64]map[int64]bool)
 	getChatAdmins(ctx)
 
-	mainRegex = regexp.MustCompile(fmt.Sprintf(`%s\s*https://t\.me/(c/)?([\d\w]+)/(\d+)`, myID))
-	myBot.RegisterHandlerRegexp(bot.HandlerTypeMessageText, mainRegex, handler_poke)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, fmt.Sprintf("@%s", myID), bot.MatchTypePrefix, banHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/pause", bot.MatchTypePrefix, pauseHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/ban", bot.MatchTypePrefix, banHandler)
 	myBot.RegisterHandler(bot.HandlerTypeCallbackQueryData, "b_", bot.MatchTypePrefix, actionCallbackHandler)
@@ -499,60 +492,6 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 
 }
 
-func handler_poke(ctx context.Context, b *bot.Bot, update *models.Update) {
-
-	// PAUSE
-	chatId := update.Message.Chat.ID
-	chatSettings := getChatSettings(ctx, chatId)
-	if chatSettings.Pause {
-		onPauseMessage(ctx, b, update.Message)
-		return
-	}
-
-	pokeConter := 0
-	result := linkRegex.FindAllStringSubmatch(update.Message.Text, -1)
-
-	for i := range result {
-		if result[i][1] == "" {
-			linkUsername := result[i][2]
-			if linkUsername != update.Message.Chat.Username {
-				log.Printf("Chat Username is not match %s != %s\n", linkUsername, update.Message.Chat.Username)
-				continue
-			}
-		} else {
-			parsedID, _ := strconv.ParseInt("-100"+result[i][2], 10, 64)
-			if chatId != parsedID {
-				log.Printf("Chat ID is not match %d != %d\n", parsedID, chatId)
-				continue
-			}
-		}
-		pokeMessageID, err := strconv.ParseInt(result[i][3], 10, 64)
-		if err != nil {
-			log.Printf("Message ID is curropted %s", result[i][3])
-			continue
-		}
-
-		banInfo, err := getBanInfo(ctx, chatId, pokeMessageID)
-		if err != nil {
-			log.Printf("Can't make a baninfo: %v", err)
-			systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извините сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"")
-			continue
-		}
-		banInfo.OwnerID = update.Message.From.ID
-		banInfo.RequestMessageID = int64(update.Message.ID)
-		if checkForDuplicates(ctx, chatId, banInfo.UserID, b, update) {
-			continue
-		}
-		if !makeVoteMessage(ctx, banInfo, b) {
-			continue
-		}
-		// if not false
-		pokeConter = pokeConter + 1
-	}
-	// save for statistic
-	userMakeVote(ctx, update.Message.From.ID, pokeConter)
-}
-
 func checkAdmins(ctx context.Context, b *bot.Bot, chatID int64) (chatAdmins map[int64]bool) {
 	chatAdmins, rep := admins[chatID]
 	if !rep {
@@ -637,6 +576,9 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if v.Type == models.MessageEntityTypeMention {
 			username := update.Message.Text[v.Offset+1 : v.Offset+v.Length]
 			log.Printf("mention username @%s", username)
+			if username == myID {
+				continue
+			}
 			banInfo, err = getBanInfoByUsername(ctx, chatId, username)
 			if err != nil {
 				log.Printf("TODO: return error to user! %v", err)
