@@ -61,6 +61,8 @@ type DyncmicSetting struct {
 	ChatID        int64
 	Pause         bool
 	LogRecipients []int64
+	ChatName      string
+	ChatUsername  string
 }
 
 func initDb(ctx context.Context, connectionLine string, dbName string) {
@@ -323,6 +325,16 @@ func writeChatSettings(ctx context.Context, chatID int64, settings *DyncmicSetti
 		log.Printf("Upsert of the chat settings went wrong %v", err)
 	}
 
+}
+
+func deleteChatSettings(ctx context.Context, chatID int64) {
+	filter := bson.D{
+		{Key: "chatid", Value: chatID},
+	}
+	_, err := chatSettingsCollection.DeleteOne(ctx, filter)
+	if err != nil {
+		log.Printf("Delete of the chat settings went wrong %v", err)
+	}
 }
 
 func getUserLastNthMessages(ctx context.Context, userID int64, chatID int64, amaount uint16) (ret []ChatMessage, err error) {

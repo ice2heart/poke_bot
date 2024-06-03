@@ -117,9 +117,7 @@ func main() {
 	myID = me.Username
 
 	admins = make(map[int64]map[int64]bool)
-	for k := range settings {
-		admins[k] = getAdmins(ctx, myBot, k)
-	}
+	getChatAdmins(ctx)
 
 	mainRegex = regexp.MustCompile(fmt.Sprintf(`%s\s*https://t\.me/(c/)?([\d\w]+)/(\d+)`, myID))
 	myBot.RegisterHandlerRegexp(bot.HandlerTypeMessageText, mainRegex, handler_poke)
@@ -130,21 +128,65 @@ func main() {
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypePrefix, startHandler)
 	log.Printf("Starting %s", me.Username)
 	// each 12 hours update admins list
-	go ticker(ctx, 720, getChatAdmins)
+	go ticker(ctx, 43200, getChatAdmins)
 	myBot.Start(ctx)
+}
+
+func botRemovedFromChat(ctx context.Context, chatID int64) {
+	name := settings[chatID].ChatName
+	username := settings[chatID].ChatUsername
+	deleteChatSettings(ctx, chatID)
+	delete(settings, chatID)
+
+	myBot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: 198082233,
+		Text:   fmt.Sprintf("Bot deleted from chat \"%s\" @%s %d", name, username, chatID),
+	})
 }
 
 func getChatAdmins(ctx context.Context) {
 	for k := range settings {
+		chat, err := myBot.GetChat(ctx, &bot.GetChatParams{
+			ChatID: k,
+		})
+		if err != nil {
+			botRemovedFromChat(ctx, k)
+			continue
+		}
+		updated := false
+		if len(settings[k].ChatName) == 0 {
+			settings[k].ChatName = chat.Title
+			updated = true
+		}
+		if len(settings[k].ChatUsername) == 0 {
+			settings[k].ChatUsername = chat.Username
+			updated = true
+		}
+		if updated {
+			writeChatSettings(ctx, k, settings[k])
+		}
+
 		admins[k] = getAdmins(ctx, myBot, k)
-		log.Printf("Update admins for chat %d\n%v", k, admins[k])
 	}
 }
 
 func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
-		// jcart, _ := json.MarshalIndent(update, "", "\t")
-		// fmt.Println(string(jcart))
+
+		if update.MyChatMember != nil {
+			// jcart, _ := json.MarshalIndent(update, "", "\t")
+			// fmt.Println(string(jcart))
+			if update.MyChatMember.NewChatMember.Banned != nil || update.MyChatMember.NewChatMember.Left != nil {
+				botRemovedFromChat(ctx, update.MyChatMember.Chat.ID)
+			}
+			if update.MyChatMember.NewChatMember.Member != nil && update.MyChatMember.Chat.ID < 0 {
+				b.SendMessage(ctx, &bot.SendMessageParams{
+					ChatID: 198082233,
+					Text:   fmt.Sprintf("Bot added to chat \"%s\" @%s", update.MyChatMember.Chat.Title, update.MyChatMember.Chat.Username),
+				})
+				getChatSettings(ctx, update.MyChatMember.Chat.ID)
+			}
+		}
 
 		if update.Message != nil {
 			// log.Printf("%s say: %s, lang code %s", update.Message.From.FirstName, update.Message.Text, update.Message.From.LanguageCode)
@@ -186,10 +228,21 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 func getChatSettings(ctx context.Context, chatId int64) (chatSettings *DyncmicSetting) {
 	chatSettings, prs := settings[chatId]
 	if !prs {
+		name := ""
+		username := ""
+		chat, err := myBot.GetChat(ctx, &bot.GetChatParams{
+			ChatID: chatId,
+		})
+		if err == nil {
+			name = chat.Title
+			username = chat.Username
+		}
 		chatSettings = &DyncmicSetting{
 			ChatID:        chatId,
 			Pause:         false,
 			LogRecipients: []int64{},
+			ChatName:      name,
+			ChatUsername:  username,
 		}
 		writeChatSettings(ctx, chatId, chatSettings)
 	}
@@ -264,12 +317,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		})
 	}()
 	if update.CallbackQuery == nil || update.CallbackQuery.Message.Message == nil {
-		jcart, _ := json.MarshalIndent(update, "", "\t")
-		log.Println(string(jcart))
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: 198082233,
-			Text:   fmt.Sprintf("something gose wrong %s", string(jcart)),
-		})
+		// already deleted message
 		return
 	}
 	log.Printf("Get vote %s, from message id: %d chatid: %d", update.CallbackQuery.Data, update.CallbackQuery.Message.Message.ID, update.CallbackQuery.Message.Message.Chat.ID)
@@ -800,6 +848,16 @@ func testHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	log.Printf("test handler chatid %d userid %d\n", update.Message.Chat.ID, update.Message.From.ID)
 	chatId := update.Message.Chat.ID
 	publicInt, _ := strconv.ParseInt(makePublicGroupString(chatId), 10, 64)
+
+	chatinfo, err := b.GetChatAdministrators(ctx, &bot.GetChatAdministratorsParams{
+		ChatID: update.Message.Chat.ID,
+	})
+
+	if err == nil {
+		jcart, _ := json.MarshalIndent(chatinfo, "", "\t")
+		log.Println(string(jcart))
+		return
+	}
 
 	testData := &Item{
 		Action: 1,
