@@ -164,7 +164,7 @@ func getChatName(ctx context.Context, b *bot.Bot, chatID int64) string {
 	return chatInfo.Title
 }
 
-func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool) {
+func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool, err error) {
 
 	admins, err := b.GetChatAdministrators(ctx, &bot.GetChatAdministratorsParams{
 		ChatID: chat,
@@ -172,7 +172,7 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool)
 	ret = make(map[int64]bool)
 	if err != nil {
 		log.Printf("Can't get chat %d admins: %v", chat, err)
-		return
+		return nil, err
 	}
 	for _, admin := range admins {
 		switch admin.Type {
@@ -184,7 +184,7 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool)
 			log.Printf("Some strange type here %v", admin.Type)
 		}
 	}
-	return ret
+	return ret, nil
 }
 
 func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messageId int, text string, deleteOrigin ...bool) {

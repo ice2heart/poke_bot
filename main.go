@@ -159,7 +159,12 @@ func getChatAdmins(ctx context.Context) {
 			writeChatSettings(ctx, k, settings[k])
 		}
 
-		admins[k] = getAdmins(ctx, myBot, k)
+		adminsList, err := getAdmins(ctx, myBot, k)
+		if err != nil {
+			botRemovedFromChat(ctx, k)
+			continue
+		}
+		admins[k] = adminsList
 	}
 }
 
@@ -499,7 +504,10 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 func checkAdmins(ctx context.Context, b *bot.Bot, chatID int64) (chatAdmins map[int64]bool) {
 	chatAdmins, rep := admins[chatID]
 	if !rep {
-		chatAdmins = getAdmins(ctx, b, chatID)
+		chatAdmins, err := getAdmins(ctx, b, chatID)
+		if err != nil {
+			return make(map[int64]bool)
+		}
 		admins[chatID] = chatAdmins
 	}
 	return chatAdmins
