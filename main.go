@@ -273,6 +273,9 @@ func makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 			MessageID: int(banInfo.RequestMessageID),
 		},
 		ReplyMarkup: getVoteButtons(0, 0),
+		LinkPreviewOptions: &models.LinkPreviewOptions{
+			IsDisabled: bot.True(),
+		},
 	})
 	if err != nil {
 		log.Printf("Can't send ban message %s \nError: %v", banInfo.BanMessage, err)
