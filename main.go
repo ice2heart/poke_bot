@@ -170,10 +170,10 @@ func getChatAdmins(ctx context.Context) {
 
 func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
-
+		// jcart, _ := json.MarshalIndent(update, "", "\t")
+		// fmt.Println(string(jcart))
 		if update.MyChatMember != nil {
-			// jcart, _ := json.MarshalIndent(update, "", "\t")
-			// fmt.Println(string(jcart))
+
 			if update.MyChatMember.NewChatMember.Banned != nil || update.MyChatMember.NewChatMember.Left != nil {
 				botRemovedFromChat(ctx, update.MyChatMember.Chat.ID)
 			}
@@ -187,7 +187,6 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 		}
 
 		if update.Message != nil {
-			// log.Printf("%s say: %s, lang code %s", update.Message.From.FirstName, update.Message.Text, update.Message.From.LanguageCode)
 			now := time.Now()
 
 			userID := update.Message.From.ID
@@ -204,9 +203,28 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 			if update.Message.Sticker != nil {
 				storedText = fmt.Sprintf("Sticker: %s, pack: %s", update.Message.Sticker.Emoji, update.Message.Sticker.SetName)
 			}
-			if update.Message.Photo != nil {
+			if update.Message.Animation != nil {
+				storedText = fmt.Sprintf("GIF: name %s", update.Message.Animation.FileName)
+			}
+			if len(update.Message.Caption) != 0 {
 				storedText = fmt.Sprintf("Photo, text:\n%s", escape(update.Message.Caption))
 			}
+
+			hiddenUrls := make([]string, 0)
+			for _, v := range update.Message.CaptionEntities {
+				if len(v.URL) != 0 {
+					hiddenUrls = append(hiddenUrls, v.URL)
+				}
+			}
+			for _, v := range update.Message.Entities {
+				if len(v.URL) != 0 {
+					hiddenUrls = append(hiddenUrls, v.URL)
+				}
+			}
+			if len(hiddenUrls) != 0 {
+				storedText = fmt.Sprintf("%s\n%s", storedText, strings.Join(hiddenUrls, "\n"))
+			}
+			// log.Println(storedText)
 
 			userPlusOneMessage(ctx, userID, userName, altUserName)
 			saveMessage(ctx, &ChatMessage{
