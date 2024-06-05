@@ -43,7 +43,7 @@ func makeBanMessage(b *BanInfo) string {
 
 	var username string
 	if b.UserName == "" {
-		username = fmt.Sprintf("[%s](tg://user?id=%d)", escape(b.ProfileName), b.UserID)
+		username = fmt.Sprintf("[%s](tg://user?id=%d)", strings.TrimSpace(escape(b.ProfileName)), b.UserID)
 	} else {
 		username = fmt.Sprintf("@%s", escape(b.UserName))
 	}

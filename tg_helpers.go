@@ -6,6 +6,7 @@ import (
 	"log"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -242,4 +243,13 @@ func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, me
 		return false
 	}
 	return true
+}
+
+func (user *UserRecord) toClickableUsername() (username string) {
+	if len(user.Username) == 0 {
+		username = fmt.Sprintf("[%s](tg://user?id=%d)", strings.TrimSpace(escape(user.AltUsername)), user.Uid)
+	} else {
+		username = fmt.Sprintf("@%s", escape(user.Username))
+	}
+	return username
 }

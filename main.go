@@ -395,11 +395,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		var banUsertag string
 
 		if err == nil {
-			if len(user.Username) == 0 {
-				banUsertag = fmt.Sprintf("[%s](tg://user?id=%d)", user.AltUsername, user.Uid)
-			} else {
-				banUsertag = fmt.Sprintf("@%s", escape(user.Username))
-			}
+			banUsertag = user.toClickableUsername()
 		} else {
 			banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
 		}
@@ -410,11 +406,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		maker, err := getUser(ctx, s.OwnerID)
 		ownerInfo := ""
 		if err == nil {
-			if len(maker.Username) == 0 {
-				ownerInfo = fmt.Sprintf("Автор голосовалки [%s](tg://user?id=%d)", maker.AltUsername, maker.Uid)
-			} else {
-				ownerInfo = fmt.Sprintf("Автор голосовалки @%s", escape(maker.Username))
-			}
+			ownerInfo = fmt.Sprintf("Автор голосовалки %s", maker.toClickableUsername())
 		}
 		report := fmt.Sprintf("%s %s\n%s", resultText, banUsertag, ownerInfo)
 
