@@ -207,7 +207,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 				storedText = fmt.Sprintf("GIF: name %s", update.Message.Animation.FileName)
 			}
 			if len(update.Message.Caption) != 0 {
-				storedText = fmt.Sprintf("Photo, text:\n%s", escape(update.Message.Caption))
+				storedText = fmt.Sprintf("Photo, text:\n%s", update.Message.Caption)
 			}
 
 			hiddenUrls := make([]string, 0)
