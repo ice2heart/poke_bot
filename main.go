@@ -117,8 +117,9 @@ func main() {
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/pause", bot.MatchTypePrefix, pauseHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/ban", bot.MatchTypePrefix, banHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/voteban", bot.MatchTypePrefix, banHandler)
-	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/voteeblan", bot.MatchTypePrefix, banHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/voteblan", bot.MatchTypePrefix, banHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/mute", bot.MatchTypePrefix, muteHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/voteeblan", bot.MatchTypePrefix, muteHandler)
 	myBot.RegisterHandler(bot.HandlerTypeCallbackQueryData, "b_", bot.MatchTypePrefix, actionCallbackHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/test", bot.MatchTypePrefix, testHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypePrefix, startHandler)
@@ -298,7 +299,7 @@ func makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 			ChatID:    banInfo.ChatID,
 			MessageID: int(banInfo.RequestMessageID),
 		},
-		ReplyMarkup: getVoteButtons(0, 0),
+		ReplyMarkup: getVoteButtons(0, 0, banInfo.Type),
 		LinkPreviewOptions: &models.LinkPreviewOptions{
 			IsDisabled: bot.True(),
 		},
@@ -307,7 +308,7 @@ func makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 		log.Printf("Can't send ban message %s \nError: %v", banInfo.BanMessage, err)
 		return false
 	}
-	log.Printf("Responce id %d\n", responceMessage.ID)
+	log.Printf("makeVoteMessage: Responce id %d\n", responceMessage.ID)
 
 	chatSessions, ok := sessions[banInfo.ChatID]
 	if !ok {
@@ -325,10 +326,6 @@ func onPauseMessage(ctx context.Context, b *bot.Bot, message *models.Message) {
 }
 
 func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
-	// answering callback query first to let Telegram know that we received the callback query,
-	// and we're handling it. Otherwise, Telegram might retry sending the update repetitively
-	// as it thinks the callback query doesn't reach to our application. learn more by
-	// reading the footnote of the https://core.telegram.org/bots/api#callbackquery type.
 	var answer_message *string
 	answer_message = &ANSWER_SOMETHING_WRONG
 	defer func() {
@@ -389,103 +386,18 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 
 	if superPoke == 1 || (upvoteCount-downvoteCount >= int(s.Score)) {
 		//move to separate function
-		result, err := b.BanChatMember(ctx, &bot.BanChatMemberParams{
-			ChatID: s.ChatID,
-			UserID: s.UserID,
-		})
-		if err != nil {
-			log.Printf("Can't ban user %v %d ", err, s.ChatID)
-		}
-		//Delete the target
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    s.ChatID,
-			MessageID: int(s.TargetMessageID),
-		})
-		//Delete the vote message
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    s.ChatID,
-			MessageID: int(s.VoteMessageID),
-		})
-		// Delete the vote request
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    s.ChatID,
-			MessageID: int(s.RequestMessageID),
-		})
-
-		user, err := getUser(ctx, s.UserID)
-		var banUsertag string
-
-		if err == nil {
-			banUsertag = user.toClickableUsername()
-		} else {
-			banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
-		}
-		resultText := "Успешно забанен"
-		if !result {
-			resultText = "Не смог забанить"
-		}
-		maker, err := getUser(ctx, s.OwnerID)
-		ownerInfo := ""
-		if err == nil {
-			ownerInfo = fmt.Sprintf("Автор голосовалки %s", maker.toClickableUsername())
-		}
-		report := fmt.Sprintf("%s %s\n%s", resultText, banUsertag, ownerInfo)
-
-		userMessages, err := getUserLastNthMessages(ctx, s.UserID, s.ChatID, 20)
-		messageIDs := make([]int, len(userMessages))
-
-		if err == nil && len(userMessages) > 0 {
-
-			text := make([]string, 0, len(userMessages))
-			for i, v := range userMessages {
-				messageIDs[i] = int(v.MessageID)
-
-				lines := strings.Split(v.Text, "\n")
-				for _, line := range lines {
-					line = fmt.Sprintf(">%s", escape(line))
-					text = append(text, line)
-				}
+		switch s.Type {
+		case BAN:
+			{
+				banUser(ctx, b, s)
 			}
-			escapedText := strings.Join(text, "\n")
-			report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
-		}
-		// log.Println(report)
-		for _, v := range messageIDs {
-			_, err = b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-				ChatID:    s.ChatID,
-				MessageID: int(v),
-			})
-			if err != nil {
-				log.Printf("Can't delete messages for chat %d, user %d. IDs: %v. Err: %v", s.ChatID, s.UserID, v, err)
+		case MUTE:
+			{
+				muteUser(ctx, b, s)
 			}
 		}
-		// this is works like a shit
-		// _, err = b.DeleteMessages(ctx, &bot.DeleteMessagesParams{
-		// 	ChatID:     s.ChatID,
-		// 	MessageIDs: messageIDs,
-		// })
-		// if err != nil {
-		// 	log.Printf("Can't delete messages for chat %d, user %d. IDs: %v. Err: %v", s.ChatID, s.UserID, messageIDs, err)
-		// }
-		pushBanLog(ctx, s)
+
 		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
-		disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
-
-		chatSettings := getChatSettings(ctx, s.ChatID)
-
-		for _, v := range chatSettings.LogRecipients {
-
-			_, err = b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID:             v,
-				Text:               report,
-				ParseMode:          models.ParseModeMarkdown,
-				ReplyMarkup:        getBanMessageKeyboard(s.ChatID, s.UserID),
-				LinkPreviewOptions: disablePreview,
-			})
-			if err != nil {
-				log.Printf("Can't send report %v", err)
-			}
-		}
 		return
 	}
 	// Downvoted
@@ -509,7 +421,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 	b.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
 		ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
 		MessageID:   update.CallbackQuery.Message.Message.ID,
-		ReplyMarkup: getVoteButtons(upvoteCount, downvoteCount),
+		ReplyMarkup: getVoteButtons(upvoteCount, downvoteCount, s.Type),
 	})
 
 }
@@ -589,7 +501,6 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		log.Printf("Message type: %v, entities %s", v.Type, update.Message.Text[v.Offset:v.Offset+v.Length])
 		var err error
 		var banInfo *BanInfo
-		pokeMessageID := int64(0)
 		if v.Type == models.MessageEntityTypeTextMention {
 			log.Printf("Raw data %v ,%v %v", v.Type, v.User.ID, v.User.FirstName)
 			banInfo, err = getBanInfoByUserID(ctx, chatId, v.User.ID)
@@ -627,7 +538,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 						continue
 					}
 				}
-				pokeMessageID, err = strconv.ParseInt(rxResult[i][3], 10, 64)
+				pokeMessageID, err := strconv.ParseInt(rxResult[i][3], 10, 64)
 				if err != nil {
 					log.Printf("Message ID is curropted %s", rxResult[i][3])
 					continue
@@ -805,6 +716,37 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			settings[data.ChatID] = chatSettings
 			writeChatSettings(ctx, data.ChatID, chatSettings)
 			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы не будете получать отчёты", false)
+
+		}
+	case ACTION_UNMUTE:
+		{
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+				return
+			}
+			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
+			if !ok {
+				log.Printf("TODO replace to message to user: err there are no userid")
+				return
+			}
+			log.Printf("ACTION_UNMUTE userid: %d chatid: %d", userIdRaw, data.ChatID)
+
+			ok, err := unmuteUser(ctx, b, data.ChatID, getInt(userIdRaw))
+			if err != nil {
+				log.Printf("TODO replace to message to user: err %v", err)
+				return
+			}
+			if !ok {
+				log.Printf("TODO replace to message to user: can't unban user")
+				return
+			}
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.CallbackQuery.From.ID,
+				Text:   "Пользователь размьючен",
+				ReplyParameters: &models.ReplyParameters{
+					ChatID:    update.CallbackQuery.From.ID,
+					MessageID: update.CallbackQuery.Message.Message.ID,
+				},
+			})
 
 		}
 	}

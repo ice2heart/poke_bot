@@ -27,15 +27,35 @@ func makePublicGroupString(groupID int64) string {
 	return publicGroupRX.ReplaceAllString(strconv.FormatInt(groupID, 10), "")
 }
 
-func getVoteButtons(upvotes int, downvotes int) *models.InlineKeyboardMarkup {
-	return &models.InlineKeyboardMarkup{
-		InlineKeyboard: [][]models.InlineKeyboardButton{
-			{
-				{Text: fmt.Sprintf("Бан! (%d)", upvotes), CallbackData: "button_upvote"},
-				{Text: fmt.Sprintf("Не бан (%d)", downvotes), CallbackData: "button_downvote"},
-			},
-		},
+func getVoteButtons(upvotes int, downvotes int, textType uint8) *models.InlineKeyboardMarkup {
+
+	switch textType {
+	case BAN:
+		{
+			return &models.InlineKeyboardMarkup{
+				InlineKeyboard: [][]models.InlineKeyboardButton{
+					{
+						{Text: fmt.Sprintf("Бан! (%d)", upvotes), CallbackData: "button_upvote"},
+						{Text: fmt.Sprintf("Не бан (%d)", downvotes), CallbackData: "button_downvote"},
+					},
+				},
+			}
+		}
+	case MUTE:
+		{
+			return &models.InlineKeyboardMarkup{
+				InlineKeyboard: [][]models.InlineKeyboardButton{
+					{
+						{Text: fmt.Sprintf("Мут! (%d)", upvotes), CallbackData: "button_upvote"},
+						{Text: fmt.Sprintf("Не мут (%d)", downvotes), CallbackData: "button_downvote"},
+					},
+				},
+			}
+		}
 	}
+
+	return &models.InlineKeyboardMarkup{}
+
 }
 
 func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMarkup {
@@ -56,6 +76,29 @@ func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMar
 		InlineKeyboard: [][]models.InlineKeyboardButton{
 			{
 				{Text: "Разбанить", CallbackData: fmt.Sprintf("b_%s", unbanData)},
+			},
+		},
+	}
+}
+
+func getMuteMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMarkup {
+	unmuteData, err := marshal(&Item{
+		Action: ACTION_UNMUTE,
+		ChatID: chatId,
+		Data:   map[uint8]interface{}{DATA_TYPE_USERID: userId},
+	})
+
+	if err != nil {
+		log.Printf("getMuteMessageKeyboard: Can't make unmute data %v", err)
+		return &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{},
+		}
+	}
+
+	return &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{
+			{
+				{Text: "Unmute", CallbackData: fmt.Sprintf("b_%s", unmuteData)},
 			},
 		},
 	}
@@ -225,6 +268,26 @@ func unbanUser(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (res
 		ChatID:       chatId,
 		UserID:       userId,
 		OnlyIfBanned: true,
+	})
+	return
+}
+
+func unmuteUser(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (result bool, err error) {
+	// result, err = b.UnbanChatMember(ctx, &bot.UnbanChatMemberParams{
+	// 	ChatID:       chatId,
+	// 	UserID:       userId,
+	// 	OnlyIfBanned: true,
+	// })
+	result, err = b.RestrictChatMember(ctx, &bot.RestrictChatMemberParams{
+		ChatID:                        chatId,
+		UserID:                        userId,
+		UseIndependentChatPermissions: false,
+		Permissions: &models.ChatPermissions{
+			CanSendOtherMessages:  true,
+			CanAddWebPagePreviews: true,
+			CanSendPolls:          true,
+		},
+		UntilDate: 0,
 	})
 	return
 }
