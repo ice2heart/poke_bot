@@ -256,7 +256,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    s.ChatID,
-		Text:      "Вам выдан мут на сутки, надемся на ваше понимание",
+		Text:      "Вам выдан мут на сутки, надеемся на ваше понимание",
 		ParseMode: models.ParseModeMarkdown,
 		ReplyParameters: &models.ReplyParameters{
 			ChatID:    s.ChatID,
