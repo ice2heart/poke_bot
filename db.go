@@ -40,6 +40,7 @@ type UserRecord struct {
 	VoteCounter uint32
 	Username    string
 	AltUsername string
+	MuteCounter int
 }
 
 type ChatMessage struct {
@@ -111,6 +112,19 @@ func userPlusOneMessage(ctx context.Context, uID int64, username string, altname
 	if err != nil {
 		log.Printf("Upsert of user counter went wrong %v", err)
 	}
+}
+
+func userAddMuteCounter(ctx context.Context, uID int64) error {
+	filter := bson.D{
+		{Key: "uid", Value: uID},
+	}
+	update := bson.D{
+		{Key: "$inc", Value: bson.D{
+			{Key: "muteCounter", Value: 1},
+		}},
+	}
+	_, err := usersCollection.UpdateOne(ctx, filter, update, upserOptions)
+	return err
 }
 
 func userMakeVote(ctx context.Context, uID int64, amount int) {
