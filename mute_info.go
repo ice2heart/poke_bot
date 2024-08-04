@@ -303,18 +303,3 @@ func getMuteDurationText(user UserRecord) string {
 	muteDuratuionInDays := getMuteDurationInDays(user)
 	return getMuteDurationTextFromDays(muteDuratuionInDays)
 }
-
-// func getMuteMessage(user UserRecord) string {
-// 	var muteDuratuion string
-
-// 	switch getMuteDurationInDays(user) {
-// 	case 1:
-// 		muteDuratuion = "сутки"
-// 	case 2:
-// 		muteDuratuion = fmt.Sprintf("%d дня", getMuteDurationInDays(user))
-// 	default:
-// 		muteDuratuion = "дней"
-// 	}
-
-// 	return fmt.Sprintf("Вам выдан мут на %s, надеемся на ваше понимание", muteDuratuion)
-// }
