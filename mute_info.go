@@ -214,7 +214,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		MessageID: int(s.RequestMessageID),
 	})
 
-	resultText := "Успешно замьючен на сутки"
+	resultText := fmt.Sprintf("Успешно замьючен на %s", getMuteDurationText(*user))
 	if !result {
 		resultText = "Не смог замьютить"
 	}
@@ -266,8 +266,8 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	if result {
 		// do not notify if you failed
 		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: s.ChatID,
-			// Text:      fmt.Sprintf(),
+			ChatID:    s.ChatID,
+			Text:      fmt.Sprintf("Вам выдан мут на %s, надеемся на ваше понимание", getMuteDurationText(*user)),
 			ParseMode: models.ParseModeMarkdown,
 			ReplyParameters: &models.ReplyParameters{
 				ChatID:    s.ChatID,
@@ -286,19 +286,22 @@ func getMuteDuration(user UserRecord) int {
 	return currentTime + 86400*(getMuteDurationInDays(user))
 }
 
-func getMuteDurationText(user UserRecord) (muteDuratuion string) {
-	muteDuratuionInDays := getMuteDurationInDays(user)
-
+func getMuteDurationTextFromDays(muteDuratuionInDays int) (muteDuratuion string) {
 	if muteDuratuionInDays == 1 {
 		muteDuratuion = "сутки"
-	} else if muteDuratuionInDays < 5 {
-		muteDuratuion = fmt.Sprintf("%d дня", getMuteDurationInDays(user))
-	} else if (muteDuratuionInDays > 20 && muteDuratuionInDays%10 > 5) || (muteDuratuionInDays >= 10) {
-		muteDuratuion = fmt.Sprintf("%d дней", getMuteDurationInDays(user))
-	} else if muteDuratuionInDays%10 == 1 && muteDuratuionInDays > 20 {
-		muteDuratuion = fmt.Sprintf("%d день", getMuteDurationInDays(user))
+	} else if muteDuratuionInDays%10 == 1 && muteDuratuionInDays >= 20 {
+		muteDuratuion = fmt.Sprintf("%d день", muteDuratuionInDays)
+	} else if (muteDuratuionInDays > 20 && muteDuratuionInDays%10 >= 5) || ((muteDuratuionInDays >= 5) && (muteDuratuionInDays <= 20)) || (muteDuratuionInDays > 20 && muteDuratuionInDays%10 == 0) {
+		muteDuratuion = fmt.Sprintf("%d дней", muteDuratuionInDays)
+	} else if muteDuratuionInDays < 5 || (muteDuratuionInDays > 20 && muteDuratuionInDays%10 < 5) {
+		muteDuratuion = fmt.Sprintf("%d дня", muteDuratuionInDays)
 	}
 	return
+}
+
+func getMuteDurationText(user UserRecord) string {
+	muteDuratuionInDays := getMuteDurationInDays(user)
+	return getMuteDurationTextFromDays(muteDuratuionInDays)
 }
 
 // func getMuteMessage(user UserRecord) string {
