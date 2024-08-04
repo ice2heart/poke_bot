@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"time"
 
@@ -171,11 +172,19 @@ func muteHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 }
 
 func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
+	user, err := getUser(ctx, s.UserID)
+	var banUsertag string
+
+	if err == nil {
+		banUsertag = user.toClickableUsername()
+	} else {
+		banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
+	}
 
 	result, err := b.RestrictChatMember(ctx, &bot.RestrictChatMemberParams{
 		ChatID:    s.ChatID,
 		UserID:    s.UserID,
-		UntilDate: int(time.Now().Unix()) + 86400,
+		UntilDate: getMuteDuration(*user),
 		Permissions: &models.ChatPermissions{
 			CanSendOtherMessages:  false,
 			CanAddWebPagePreviews: false,
@@ -186,6 +195,14 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	if err != nil {
 		log.Printf("Can't mute user %v %d ", err, s.ChatID)
 	}
+
+	if result {
+		err = userAddMuteCounter(ctx, s.UserID)
+		if err != nil {
+			log.Printf("Can't add mute counter %v %d ", err, s.ChatID)
+		}
+	}
+
 	//Delete the vote message
 	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 		ChatID:    s.ChatID,
@@ -197,14 +214,6 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		MessageID: int(s.RequestMessageID),
 	})
 
-	user, err := getUser(ctx, s.UserID)
-	var banUsertag string
-
-	if err == nil {
-		banUsertag = user.toClickableUsername()
-	} else {
-		banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
-	}
 	resultText := "Успешно замьючен на сутки"
 	if !result {
 		resultText = "Не смог замьютить"
@@ -267,4 +276,9 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		})
 	}
 
+}
+
+func getMuteDuration(user UserRecord) int {
+	currentTime := int(time.Now().Unix())
+	return currentTime + 86400*(1+int(math.Round(math.Log2(float64(user.MuteCounter+1)))))
 }
