@@ -5,7 +5,11 @@ import (
 	"strconv"
 )
 
+// Do not touch, this is because UTF-8 symbols != bytes
 func firstN(s string, n int) string {
+	if len(s) < n {
+		return s
+	}
 	i := 0
 	for j := range s {
 		if i == n {
