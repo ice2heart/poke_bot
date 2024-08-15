@@ -174,8 +174,8 @@ func getChatAdmins(ctx context.Context) {
 
 func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
-		jcart, _ := json.MarshalIndent(update, "", "\t")
-		fmt.Println(string(jcart))
+		// jcart, _ := json.MarshalIndent(update, "", "\t")
+		// fmt.Println(string(jcart))
 		if update.MyChatMember != nil {
 
 			if update.MyChatMember.NewChatMember.Banned != nil || update.MyChatMember.NewChatMember.Left != nil {
