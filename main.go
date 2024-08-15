@@ -196,6 +196,11 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 			userID := update.Message.From.ID
 			userName := update.Message.From.Username
 			altUserName := fmt.Sprintf("%s %s", update.Message.From.FirstName, update.Message.From.LastName)
+			if update.Message.SenderChat != nil {
+				userID = update.Message.SenderChat.ID
+				userName = update.Message.SenderChat.Username
+				altUserName = update.Message.SenderChat.Title
+			}
 
 			if update.Message.SenderChat != nil {
 				userID = update.Message.SenderChat.ID
@@ -241,6 +246,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 			})
 
 		}
+
 		next(ctx, b, update)
 	}
 }
@@ -488,6 +494,10 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 	chatId := update.Message.Chat.ID
 	chatSettings := getChatSettings(ctx, chatId)
+	senderId := update.Message.From.ID
+	if update.Message.SenderChat != nil {
+		senderId = update.Message.SenderChat.ID
+	}
 	if chatSettings.Pause {
 		onPauseMessage(ctx, b, update.Message)
 		return
@@ -554,7 +564,8 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if banInfo == nil {
 			continue
 		}
-		banInfo.OwnerID = update.Message.From.ID
+		banInfo.OwnerID = senderId
+		// if used a chat alias should be saved proper ID
 		banInfo.RequestMessageID = int64(update.Message.ID)
 		if checkForDuplicates(ctx, chatId, banInfo.UserID, b, update) {
 			continue
@@ -566,7 +577,8 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		pokeConter = pokeConter + 1
 
 	}
-	userMakeVote(ctx, update.Message.From.ID, pokeConter)
+
+	userMakeVote(ctx, senderId, pokeConter)
 
 }
 

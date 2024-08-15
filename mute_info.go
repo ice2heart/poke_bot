@@ -159,6 +159,10 @@ func muteHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		}
 
 		banInfo.OwnerID = update.Message.From.ID
+		// if used a chat alias should be saved proper ID
+		if update.Message.SenderChat != nil {
+			banInfo.OwnerID = update.Message.SenderChat.ID
+		}
 		banInfo.RequestMessageID = int64(update.Message.ID)
 		if checkForDuplicates(ctx, chatId, banInfo.UserID, b, update) {
 			continue
