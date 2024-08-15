@@ -210,6 +210,30 @@ func saveMessage(ctx context.Context, message *ChatMessage) {
 	}
 }
 
+func updateMessage(ctx context.Context, message *ChatMessage) {
+	filter := bson.D{
+		{Key: "messageid", Value: message.MessageID},
+		{Key: "chatid", Value: message.ChatID},
+	}
+	updatePipeline := bson.A{
+		bson.D{
+			{Key: "$set", Value: bson.D{
+				{Key: "text", Value: bson.D{
+					{Key: "$concat", Value: bson.A{
+						"$text", "\nEdit:\n", message.Text,
+					}},
+				}},
+			},
+			},
+		},
+	}
+	_, err := chatMessages.UpdateMany(ctx, filter, updatePipeline)
+	if err != nil {
+		log.Printf("Can't update edited message %v", err)
+		return
+	}
+}
+
 func getMessageInfo(ctx context.Context, chatID int64, messageID int64) (chatMessage *ChatMessage, err error) {
 	filter := bson.D{
 		{Key: "chatid", Value: chatID},

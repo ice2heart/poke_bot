@@ -174,8 +174,8 @@ func getChatAdmins(ctx context.Context) {
 
 func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
-		// jcart, _ := json.MarshalIndent(update, "", "\t")
-		// fmt.Println(string(jcart))
+		jcart, _ := json.MarshalIndent(update, "", "\t")
+		fmt.Println(string(jcart))
 		if update.MyChatMember != nil {
 
 			if update.MyChatMember.NewChatMember.Banned != nil || update.MyChatMember.NewChatMember.Left != nil {
@@ -196,12 +196,6 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 			userID := update.Message.From.ID
 			userName := update.Message.From.Username
 			altUserName := fmt.Sprintf("%s %s", update.Message.From.FirstName, update.Message.From.LastName)
-			if update.Message.SenderChat != nil {
-				userID = update.Message.SenderChat.ID
-				userName = update.Message.SenderChat.Username
-				altUserName = update.Message.SenderChat.Title
-			}
-
 			if update.Message.SenderChat != nil {
 				userID = update.Message.SenderChat.ID
 				userName = update.Message.SenderChat.Username
@@ -243,6 +237,32 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 				UserName:  userName,
 				Text:      storedText,
 				Date:      uint64(now.AddDate(0, 0, MESSAGE_TTL_DAYS).UnixMilli()),
+			})
+		}
+		if update.EditedMessage != nil {
+
+			storedText := update.EditedMessage.Text
+			if len(update.EditedMessage.Caption) != 0 {
+				storedText = fmt.Sprintf("Photo, text:\n%s", update.EditedMessage.Caption)
+			}
+			hiddenUrls := make([]string, 0)
+			for _, v := range update.EditedMessage.CaptionEntities {
+				if len(v.URL) != 0 {
+					hiddenUrls = append(hiddenUrls, v.URL)
+				}
+			}
+			for _, v := range update.EditedMessage.Entities {
+				if len(v.URL) != 0 {
+					hiddenUrls = append(hiddenUrls, v.URL)
+				}
+			}
+			if len(hiddenUrls) != 0 {
+				storedText = fmt.Sprintf("%s\n%s", storedText, strings.Join(hiddenUrls, "\n"))
+			}
+			updateMessage(ctx, &ChatMessage{
+				MessageID: int64(update.EditedMessage.ID),
+				ChatID:    update.EditedMessage.Chat.ID,
+				Text:      storedText,
 			})
 
 		}
