@@ -228,6 +228,16 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 				storedText = fmt.Sprintf("%s\n%s", storedText, strings.Join(hiddenUrls, "\n"))
 			}
 			// log.Println(storedText)
+			if len(storedText) == 0 {
+				// jcart, _ := json.MarshalIndent(update, "", "\t")
+				// fmt.Println(string(jcart))
+				if len(update.Message.Photo) != 0 {
+					storedText = "A photo without text"
+				}
+				if update.Message.Video != nil {
+					storedText = "A video without text"
+				}
+			}
 
 			userPlusOneMessage(ctx, userID, userName, altUserName)
 			saveMessage(ctx, &ChatMessage{
