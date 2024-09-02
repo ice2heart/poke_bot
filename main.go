@@ -130,10 +130,18 @@ func main() {
 }
 
 func botRemovedFromChat(ctx context.Context, chatID int64) {
-	name := settings[chatID].ChatName
-	username := settings[chatID].ChatUsername
+
+	chatSettings, ok := settings[chatID]
+	if !ok {
+		chatSettings = &DyncmicSetting{ChatName: "unknown name", ChatUsername: "unknown username"}
+	}
+
+	name := chatSettings.ChatName
+	username := chatSettings.ChatUsername
+	if ok {
+		delete(settings, chatID)
+	}
 	deleteChatSettings(ctx, chatID)
-	delete(settings, chatID)
 
 	myBot.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: 198082233,
