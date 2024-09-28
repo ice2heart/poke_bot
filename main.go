@@ -386,12 +386,13 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 	log.Printf("Get vote %s, from message id: %d chatid: %d", update.CallbackQuery.Data, update.CallbackQuery.Message.Message.ID, update.CallbackQuery.Message.Message.Chat.ID)
 	chatSession, ok := sessions[update.CallbackQuery.Message.Message.Chat.ID]
 	if !ok {
-		log.Println("something goes wrong")
+		log.Printf("something goes wrong, there are no session for chatID: %d", update.CallbackQuery.Message.Message.Chat.ID)
 		return
 	}
 	s, ok := chatSession[int64(update.CallbackQuery.Message.Message.ID)]
 	if !ok {
-		log.Println("something goes wrong")
+		log.Printf("something goes wrong, there are no message with ID: %d", update.CallbackQuery.Message.Message.ID)
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: update.CallbackQuery.Message.Message.Chat.ID, MessageID: update.CallbackQuery.Message.Message.ID})
 		return
 	}
 
