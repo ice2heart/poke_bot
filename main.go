@@ -16,6 +16,10 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/joho/godotenv"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
+	"github.com/ice2heart/poke_bot/mtproto"
 )
 
 const (
@@ -23,7 +27,8 @@ const (
 )
 
 var (
-	myBot *bot.Bot
+	myBot  *bot.Bot
+	client *mtproto.MTProtoHelper
 
 	myID      string
 	linkRegex *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+))`)
@@ -73,6 +78,11 @@ func escape(line string) string {
 }
 
 func main() {
+	var err error
+	// TODO: replace defaul logger
+	// https://github.com/uber-go/zap
+	logger, _ := zap.NewDevelopment(zap.IncreaseLevel(zapcore.InfoLevel), zap.AddStacktrace(zapcore.FatalLevel))
+	defer logger.Sync() // flushes buffer, if any
 	godotenv.Load()
 	botApiKey, ok := os.LookupEnv("BOT_API_KEY")
 	if !ok {
@@ -87,11 +97,49 @@ func main() {
 		dbName = "pokebot"
 	}
 
+	// // Grab those from https://my.telegram.org/apps.
+	// appID := flag.Int("api-id", 0, "app id")
+	// appHash := flag.String("api-hash", "hash", "app hash")
+	// // Get it from bot father.
+
+	appIdString, ok := os.LookupEnv("BOT_APP_ID")
+	if !ok {
+		log.Panic("BOT_APP_ID have to be set")
+	}
+	appId, err := strconv.ParseInt(appIdString, 10, 32)
+	if err != nil {
+		log.Panicf("Can't parse appId: %v", err)
+	}
+
+	appHash, ok := os.LookupEnv("BOT_APP_HASH")
+	if !ok {
+		log.Panic("BOT_APP_HASH")
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
 	initDb(ctx, mongoAddr, dbName)
 	settings = readChatsSettings(ctx)
+
+	client = &mtproto.MTProtoHelper{AppId: int(appId), AppHash: appHash, BotApiKey: botApiKey, Logger: logger}
+	if err = client.Init(ctx); err != nil {
+		log.Panicf("Can't init mtproto: %v", err)
+	}
+	defer client.Stop()
+
+	for _, chatSettings := range settings {
+		if chatSettings.ChatAccessHash != 0 {
+			continue
+		}
+		accessHash, err := client.GetAccessHash(ctx, chatSettings.ChatID)
+		if err != nil {
+			log.Printf("Can't get accessHash for chatID %v: %v", chatSettings.ChatID, err)
+		}
+		chatSettings.ChatAccessHash = accessHash
+		writeChatSettings(ctx, chatSettings.ChatID, chatSettings)
+		log.Printf("Updated the access hash for a chat %v", chatSettings.ChatName)
+	}
 
 	opts := []bot.Option{
 		bot.WithDefaultHandler(handler),
@@ -99,7 +147,6 @@ func main() {
 		bot.WithCallbackQueryDataHandler("button", bot.MatchTypePrefix, voteCallbackHandler),
 	}
 
-	var err error
 	myBot, err = bot.New(botApiKey, opts...)
 	if err != nil {
 		panic(err)
@@ -248,7 +295,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 			}
 
 			userPlusOneMessage(ctx, userID, userName, altUserName)
-			saveMessage(ctx, &ChatMessage{
+			go saveMessage(ctx, &ChatMessage{
 				MessageID: int64(update.Message.ID),
 				ChatID:    update.Message.Chat.ID,
 				UserID:    userID,
@@ -308,6 +355,11 @@ func getChatSettings(ctx context.Context, chatId int64) (chatSettings *DyncmicSe
 			ChatName:      name,
 			ChatUsername:  username,
 		}
+		accessHash, err := client.GetAccessHash(ctx, chatSettings.ChatID)
+		if err != nil {
+			log.Printf("Can't get accessHash for chatID %v: %v", chatSettings.ChatID, err)
+		}
+		chatSettings.ChatAccessHash = accessHash
 		writeChatSettings(ctx, chatId, chatSettings)
 	}
 	return chatSettings
@@ -434,6 +486,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		switch s.Type {
 		case BAN:
 			{
+				// TODO: move to separate corutine
 				banUser(ctx, b, s)
 			}
 		case MUTE:
@@ -642,15 +695,39 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
 			if !ok {
 				log.Printf("TODO replace to message to user: err there are no userid")
+				b.SendMessage(ctx, &bot.SendMessageParams{
+					ChatID: update.CallbackQuery.From.ID,
+					Text:   "Не смог разбанить пользователя",
+					ReplyParameters: &models.ReplyParameters{
+						ChatID:    update.CallbackQuery.From.ID,
+						MessageID: update.CallbackQuery.Message.Message.ID,
+					},
+				})
 				return
 			}
 			ok, err := unbanUser(ctx, b, data.ChatID, getInt(userIdRaw))
 			if err != nil {
 				log.Printf("TODO replace to message to user: err %v", err)
+				b.SendMessage(ctx, &bot.SendMessageParams{
+					ChatID: update.CallbackQuery.From.ID,
+					Text:   "Не смог разбанить пользователя",
+					ReplyParameters: &models.ReplyParameters{
+						ChatID:    update.CallbackQuery.From.ID,
+						MessageID: update.CallbackQuery.Message.Message.ID,
+					},
+				})
 				return
 			}
 			if !ok {
 				log.Printf("TODO replace to message to user: can't unban user")
+				b.SendMessage(ctx, &bot.SendMessageParams{
+					ChatID: update.CallbackQuery.From.ID,
+					Text:   "Не смог разбанить пользователя",
+					ReplyParameters: &models.ReplyParameters{
+						ChatID:    update.CallbackQuery.From.ID,
+						MessageID: update.CallbackQuery.Message.Message.ID,
+					},
+				})
 				return
 			}
 			b.SendMessage(ctx, &bot.SendMessageParams{
@@ -806,50 +883,53 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 func testHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 	log.Printf("test handler chatid %d userid %d\n", update.Message.Chat.ID, update.Message.From.ID)
-	chatId := update.Message.Chat.ID
-	publicInt, _ := strconv.ParseInt(makePublicGroupString(chatId), 10, 64)
+	// chatId := update.Message.Chat.ID
+	// publicInt, _ := strconv.ParseInt(makePublicGroupString(chatId), 10, 64)
 
-	chatinfo, err := b.GetChatAdministrators(ctx, &bot.GetChatAdministratorsParams{
-		ChatID: update.Message.Chat.ID,
-	})
+	jcart, _ := json.MarshalIndent(update, "", "\t")
+	fmt.Println(string(jcart))
 
-	if err == nil {
-		jcart, _ := json.MarshalIndent(chatinfo, "", "\t")
-		log.Println(string(jcart))
-		return
-	}
+	// chatinfo, err := b.GetChatAdministrators(ctx, &bot.GetChatAdministratorsParams{
+	// 	ChatID: update.Message.Chat.ID,
+	// })
 
-	testData := &Item{
-		Action: 1,
-		ChatID: publicInt,
-		Data:   map[uint8]interface{}{1: 23, 4: 4342},
+	// if err == nil {
+	// 	jcart, _ := json.MarshalIndent(chatinfo, "", "\t")
+	// 	log.Println(string(jcart))
+	// 	return
+	// }
 
-		// Data: "test",
-	}
+	// testData := &Item{
+	// 	Action: 1,
+	// 	ChatID: publicInt,
+	// 	Data:   map[uint8]interface{}{1: 23, 4: 4342},
 
-	enc, err := marshal(testData)
-	if err != nil {
-		log.Printf("Shit happens %v", err)
-		return
-	}
+	// 	// Data: "test",
+	// }
 
-	log.Printf("Button data %s, length %d\n", enc, len(enc))
+	// enc, err := marshal(testData)
+	// if err != nil {
+	// 	log.Printf("Shit happens %v", err)
+	// 	return
+	// }
 
-	_, err = b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    chatId,
-		Text:      "Test test",
-		ParseMode: models.ParseModeMarkdown,
-		ReplyMarkup: &models.InlineKeyboardMarkup{
-			InlineKeyboard: [][]models.InlineKeyboardButton{
-				{
-					{Text: "testbtn", CallbackData: fmt.Sprintf("b_%s", enc)},
-				},
-			},
-		},
-	})
-	if err != nil {
-		log.Println(err)
-	}
+	// log.Printf("Button data %s, length %d\n", enc, len(enc))
+
+	// _, err = b.SendMessage(ctx, &bot.SendMessageParams{
+	// 	ChatID:    chatId,
+	// 	Text:      "Test test",
+	// 	ParseMode: models.ParseModeMarkdown,
+	// 	ReplyMarkup: &models.InlineKeyboardMarkup{
+	// 		InlineKeyboard: [][]models.InlineKeyboardButton{
+	// 			{
+	// 				{Text: "testbtn", CallbackData: fmt.Sprintf("b_%s", enc)},
+	// 			},
+	// 		},
+	// 	},
+	// })
+	// if err != nil {
+	// 	log.Println(err)
+	// }
 }
 
 func getChatsForAdmin(ctx context.Context, b *bot.Bot, userID int64) []Chat {

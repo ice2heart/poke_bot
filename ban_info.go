@@ -135,12 +135,36 @@ func getBanInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInf
 }
 
 func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
+	user, err := getUser(ctx, s.UserID)
+	var banUsertag string
+
+	if err == nil {
+		banUsertag = user.toClickableUsername()
+	} else {
+		helper_user, err := client.GetUser(ctx, s.UserID)
+		if err != nil {
+			banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
+		} else {
+			banUsertag = escape(helper_user.Username)
+		}
+
+	}
+
 	result, err := b.BanChatMember(ctx, &bot.BanChatMemberParams{
 		ChatID: s.ChatID,
 		UserID: s.UserID,
 	})
 	if err != nil {
 		log.Printf("Can't ban user %v %d ", err, s.ChatID)
+	}
+
+	if !result {
+		// Use the MTproto client to try ban
+		settings := getChatSettings(ctx, s.ChatID)
+		result, err = client.BanUser(ctx, settings.ChatID, settings.ChatAccessHash, user.Username)
+		if err != nil {
+			log.Printf("MTProto ban is failed: %v", err)
+		}
 	}
 	//Delete the target
 	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
@@ -158,14 +182,6 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		MessageID: int(s.RequestMessageID),
 	})
 
-	user, err := getUser(ctx, s.UserID)
-	var banUsertag string
-
-	if err == nil {
-		banUsertag = user.toClickableUsername()
-	} else {
-		banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
-	}
 	resultText := "Успешно забанен"
 	if !result {
 		resultText = "Не смог забанить"
