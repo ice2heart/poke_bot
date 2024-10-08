@@ -57,7 +57,10 @@ func makeBanMessage(b *BanInfo) string {
 	} else {
 		username = fmt.Sprintf("@%s", escape(b.UserName))
 	}
-	messageLink := fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
+	messageLink := ""
+	if b.TargetMessageID != 0 {
+		messageLink = fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
+	}
 
 	return fmt.Sprintf("Голосуем за бан %s \nНеобходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
 }
@@ -106,6 +109,20 @@ func getBanInfoByUsername(ctx context.Context, chatID int64, username string) (b
 	return getBanInfoByUserID(ctx, chatID, user.Userid)
 }
 
+func getBanInfoByUserIDNoDB(chatID int64, userID int64, username string) (banInfo *BanInfo) {
+	banInfo = &BanInfo{
+		ChatID:          chatID,
+		UserID:          userID,
+		UserName:        username,
+		Score:           LOW_SCORE,
+		LastMessage:     "Not found",
+		TargetMessageID: 0,
+		Type:            BAN,
+	}
+	banInfo.BanMessage = makeBanMessage(banInfo)
+	return banInfo
+}
+
 func getBanInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInfo *BanInfo, err error) {
 	banInfo = &BanInfo{
 		ChatID: chatID,
@@ -127,19 +144,23 @@ func getBanInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInf
 	}
 	if len(messages) == 0 {
 		banInfo.LastMessage = "Not found"
+	} else {
+		banInfo.LastMessage = messages[0].Text
+		banInfo.TargetMessageID = messages[0].MessageID
 	}
-	banInfo.LastMessage = messages[0].Text
-	banInfo.TargetMessageID = messages[0].MessageID
 	banInfo.BanMessage = makeBanMessage(banInfo)
 	return banInfo, nil
 }
 
 func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
-	user, err := getUser(ctx, s.UserID)
+
+	// jcart, _ := json.MarshalIndent(s, "", "\t")
+	// fmt.Println(string(jcart))
+
 	var banUsertag string
 
-	if err == nil {
-		banUsertag = user.toClickableUsername()
+	if len(s.UserName) != 0 {
+		banUsertag = fmt.Sprintf("@%s", escape(s.UserName))
 	} else {
 		helper_user, err := client.GetUser(ctx, s.UserID)
 		if err != nil {
@@ -147,7 +168,6 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		} else {
 			banUsertag = escape(helper_user.Username)
 		}
-
 	}
 
 	result, err := b.BanChatMember(ctx, &bot.BanChatMemberParams{
@@ -161,7 +181,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	if !result {
 		// Use the MTproto client to try ban
 		settings := getChatSettings(ctx, s.ChatID)
-		result, err = client.BanUser(ctx, settings.ChatID, settings.ChatAccessHash, user.Username)
+		result, err = client.BanUser(ctx, settings.ChatID, settings.ChatAccessHash, s.UserName)
 		if err != nil {
 			log.Printf("MTProto ban is failed: %v", err)
 		}

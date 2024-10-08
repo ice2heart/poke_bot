@@ -620,7 +620,13 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 			banInfo, err = getBanInfoByUsername(ctx, chatId, username)
 			if err != nil {
 				log.Printf("TODO: return error to user! %v", err)
-				continue
+				userInfo, err := client.GetUserByUsername(ctx, username)
+				if err != nil {
+					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("Извините пользователь с ником %v не найден", username), true)
+					continue
+				}
+				//
+				banInfo = getBanInfoByUserIDNoDB(chatId, userInfo.UserId, userInfo.Username)
 			}
 		}
 		if v.Type == models.MessageEntityTypeURL {
@@ -647,7 +653,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 				}
 				banInfo, err = getBanInfo(ctx, chatId, pokeMessageID)
 				if err != nil {
-					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извините сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"")
+					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извините сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"", true)
 					continue
 				}
 				banInfo.TargetMessageID = pokeMessageID

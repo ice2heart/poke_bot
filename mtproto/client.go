@@ -203,6 +203,27 @@ func (client *MTProtoHelper) GetUser(ctx context.Context, uid int64) (user *MTpr
 	return nil, errors.New("the user is not found")
 }
 
+func (client *MTProtoHelper) GetUserByUsername(ctx context.Context, username string) (user *MTprotoUser, err error) {
+	peer, err := client.GetPeerByUsername(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+	switch p := peer.(type) {
+	case *tg.InputPeerUser:
+		user = &MTprotoUser{UserId: p.UserID, Username: username, AccessHash: p.AccessHash}
+		return user, nil
+	case *tg.InputPeerChannel:
+		// TODO add type of user in user
+		user = &MTprotoUser{UserId: p.ChannelID, Username: username, AccessHash: p.AccessHash}
+		return user, nil
+	case *tg.InputPeerChat:
+		user = &MTprotoUser{UserId: p.ChatID, Username: username, AccessHash: 0}
+		return user, nil
+	default:
+		return nil, fmt.Errorf("can't find user %v", username)
+	}
+}
+
 func (client *MTProtoHelper) GetPeerByUsername(ctx context.Context, username string) (peer tg.InputPeerClass, err error) {
 
 	// var peer tg.InputPeerClass
