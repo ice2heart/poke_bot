@@ -162,11 +162,11 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	if len(s.UserName) != 0 {
 		banUsertag = fmt.Sprintf("@%s", escape(s.UserName))
 	} else {
-		helper_user, err := client.GetUser(ctx, s.UserID)
+		helper_user, err := getUser(ctx, s.UserID)
 		if err != nil {
 			banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
 		} else {
-			banUsertag = escape(helper_user.Username)
+			banUsertag = helper_user.toClickableUsername()
 		}
 	}
 
