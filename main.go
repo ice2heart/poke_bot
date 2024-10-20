@@ -43,6 +43,8 @@ var (
 	ANSWER_OWN             string = "Нельзя голосовать за свою голосовалку"
 	ANSWER_NOTBAN          string = "Против бана. Голос учтён"
 	ANSWER_BAN             string = "За бан. Голос учтён"
+	ANSWER_MUTE            string = "За мут. Голос учтён"
+	ANSWER_NOTMUTE         string = "Против мута. Голос учтён"
 	ANSWER_SOMETHING_WRONG string = "что то пошло не так"
 )
 
@@ -464,9 +466,19 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		return
 	}
 	voteResult := 1
-	answer_message = &ANSWER_BAN
+	if s.Type == BAN {
+		answer_message = &ANSWER_BAN
+	} else {
+		answer_message = &ANSWER_MUTE
+	}
+
 	if update.CallbackQuery.Data == "button_downvote" {
-		answer_message = &ANSWER_NOTBAN
+		if s.Type == BAN {
+			answer_message = &ANSWER_NOTBAN
+		} else {
+			answer_message = &ANSWER_NOTMUTE
+		}
+
 		voteResult = -1
 	}
 	s.Voiters[update.CallbackQuery.From.ID] = int8(voteResult)
