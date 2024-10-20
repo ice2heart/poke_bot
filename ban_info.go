@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -175,10 +176,12 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		UserID: s.UserID,
 	})
 	if err != nil {
-		log.Printf("Can't ban user %v %d ", err, s.ChatID)
+		log.Printf("Can't ban user %v ", err)
+		jcart, _ := json.MarshalIndent(s, "", "\t")
+		log.Println(string(jcart))
 	}
 
-	if !result {
+	if !result && len(s.UserName) != 0 {
 		// Use the MTproto client to try ban
 		settings := getChatSettings(ctx, s.ChatID)
 		result, err = client.BanUser(ctx, settings.ChatID, settings.ChatAccessHash, s.UserName)
