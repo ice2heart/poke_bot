@@ -200,7 +200,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 				{Text: "Выключить логирование", CallbackData: fmt.Sprintf("b_%s", disableLog)},
 			},
 			{
-				{Text: "Выйте из чата", CallbackData: fmt.Sprintf("b_%s", leaveChat)},
+				{Text: "Выйти из чата", CallbackData: fmt.Sprintf("b_%s", leaveChat)},
 				{Text: "К списку чатов", CallbackData: fmt.Sprintf("b_%s", refresh)},
 			},
 		},

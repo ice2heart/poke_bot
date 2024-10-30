@@ -203,6 +203,10 @@ func botRemovedFromChat(ctx context.Context, chatID int64) {
 		delete(settings, chatID)
 	}
 	deleteChatSettings(ctx, chatID)
+	_, ok = admins[chatID]
+	if ok {
+		delete(admins, chatID)
+	}
 
 	myBot.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: 198082233,
@@ -924,6 +928,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 				log.Printf("Can't leave chat %d : %v", data.ChatID, err)
 				return
 			}
+
 			// return to list of chats
 			chats := getChatsForAdmin(ctx, b, update.CallbackQuery.From.ID)
 			log.Printf("chats %v", chats)
