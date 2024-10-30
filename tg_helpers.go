@@ -179,6 +179,16 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
 	}
+	leaveChat, err := marshal(&Item{
+		Action: ACTION_LEAVE_CHAT,
+		ChatID: chatID,
+	})
+	if err != nil {
+		log.Printf("Can't make a leave chat button %v", err)
+		return &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{},
+		}
+	}
 	return &models.InlineKeyboardMarkup{
 		InlineKeyboard: [][]models.InlineKeyboardButton{
 			{
@@ -190,6 +200,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 				{Text: "Выключить логирование", CallbackData: fmt.Sprintf("b_%s", disableLog)},
 			},
 			{
+				{Text: "Выйте из чата", CallbackData: fmt.Sprintf("b_%s", leaveChat)},
 				{Text: "К списку чатов", CallbackData: fmt.Sprintf("b_%s", refresh)},
 			},
 		},
@@ -301,6 +312,9 @@ func deleteAllMessages(ctx context.Context, b *bot.Bot, chatId int64, userId int
 }
 
 func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, messageChatID int64, messageID int) bool {
+	if userID == superAdminID {
+		return true
+	}
 	chatAdmins := checkAdmins(ctx, b, chatID)
 	_, rep := chatAdmins[userID]
 	if !rep {

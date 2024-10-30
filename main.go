@@ -40,6 +40,8 @@ var (
 	settings map[int64]*DyncmicSetting
 	admins   map[int64]map[int64]bool
 
+	superAdminID int64
+
 	ANSWER_OWN             string = "Нельзя голосовать за свою голосовалку"
 	ANSWER_NOTBAN          string = "Против бана. Голос учтён"
 	ANSWER_BAN             string = "За бан. Голос учтён"
@@ -97,6 +99,16 @@ func main() {
 	dbName, ok := os.LookupEnv("MONGO_DB_NAME")
 	if !ok {
 		dbName = "pokebot"
+	}
+
+	superAdminIDString, ok := os.LookupEnv("ADMIN_ID")
+	if !ok {
+		panic("ADMIN_ID have to be set")
+	}
+
+	superAdminID, err = strconv.ParseInt(superAdminIDString, 10, 64)
+	if err != nil {
+		log.Panicf("ADMIN_ID error parsing: %v", err)
 	}
 
 	// // Grab those from https://my.telegram.org/apps.
@@ -296,7 +308,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 				}
 			}
 
-			userPlusOneMessage(ctx, userID, userName, altUserName)
+			go userPlusOneMessage(ctx, userID, userName, altUserName)
 			go saveMessage(ctx, &ChatMessage{
 				MessageID: int64(update.Message.ID),
 				ChatID:    update.Message.Chat.ID,
@@ -895,6 +907,34 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			})
 
 		}
+	case ACTION_LEAVE_CHAT:
+		{
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+				return
+			}
+			log.Printf("ACTION_LEAVE_CHAT userid: %d chatid: %d", update.CallbackQuery.Message.Message.From.ID, data.ChatID)
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: data.ChatID,
+				Text:   "Bye bye!",
+			})
+			_, err := b.LeaveChat(ctx, &bot.LeaveChatParams{
+				ChatID: data.ChatID,
+			})
+			if err != nil {
+				log.Printf("Can't leave chat %d : %v", data.ChatID, err)
+				return
+			}
+			// return to list of chats
+			chats := getChatsForAdmin(ctx, b, update.CallbackQuery.From.ID)
+			log.Printf("chats %v", chats)
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID:   update.CallbackQuery.Message.Message.ID,
+				Text:        "Control pannel",
+				ReplyMarkup: getChatListKeyboard(chats),
+			})
+
+		}
 	}
 }
 
@@ -950,11 +990,12 @@ func testHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	// }
 }
 
+// TODO: have to be a better func
 func getChatsForAdmin(ctx context.Context, b *bot.Bot, userID int64) []Chat {
 	chats := make([]Chat, 0, 4)
 	for k, v := range admins {
 		_, ok := v[userID]
-		if !ok {
+		if !ok && userID != superAdminID {
 			continue
 		}
 		name := getChatName(ctx, b, k)

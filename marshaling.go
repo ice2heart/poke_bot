@@ -24,8 +24,8 @@ const (
 	ACTION_UNPAUSE_CHAT   uint8 = 6
 	ACTION_ENABLED_LOG    uint8 = 7
 	ACTION_DISABLED_LOG   uint8 = 8
-
-	ACTION_UNMUTE uint8 = 9
+	ACTION_UNMUTE         uint8 = 9
+	ACTION_LEAVE_CHAT     uint8 = 10
 )
 
 const (
