@@ -245,6 +245,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			}
 		}
 		escapedText := strings.Join(text, "\n")
+		escapedText = firstN(escapedText, 3500)
 		report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
 	}
 	// log.Println(report)
