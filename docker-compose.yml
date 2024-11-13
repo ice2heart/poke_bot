@@ -3,7 +3,7 @@ version: '3.8'
 
 services:
   poke_bot:
-    restart: unless-stopped
+    #restart: unless-stopped
     image: ghcr.io/ice2heart/poke_bot:latest
     env_file:
       - .env

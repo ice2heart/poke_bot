@@ -214,7 +214,12 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	if err == nil {
 		ownerInfo = fmt.Sprintf("Автор голосовалки %s", maker.toClickableUsername())
 	}
-	report := fmt.Sprintf("%s %s\n%s", resultText, banUsertag, ownerInfo)
+	chatNameSettongs, ok := settings[s.ChatID]
+	chatName := ""
+	if ok {
+		chatName = chatNameSettongs.ChatName
+	}
+	report := fmt.Sprintf("%s\n%s %s\n%s", chatName, resultText, banUsertag, ownerInfo)
 
 	userMessages, err := getUserLastNthMessages(ctx, s.UserID, s.ChatID, 20)
 	messageIDs := make([]int, len(userMessages))
