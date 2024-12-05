@@ -54,9 +54,10 @@ func getMuteInfoByUserID(ctx context.Context, chatID int64, userID int64) (banIn
 	messages, err := getUserLastNthMessages(ctx, userID, chatID, 1)
 	if err != nil || len(messages) == 0 {
 		banInfo.LastMessage = "Not found"
+	} else {
+		banInfo.LastMessage = messages[0].Text
+		banInfo.TargetMessageID = messages[0].MessageID
 	}
-	banInfo.LastMessage = messages[0].Text
-	banInfo.TargetMessageID = messages[0].MessageID
 	banInfo.BanMessage = makeMuteMessage(banInfo)
 	return banInfo, nil
 
