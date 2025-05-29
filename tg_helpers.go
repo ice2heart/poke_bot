@@ -52,6 +52,17 @@ func getVoteButtons(upvotes int, downvotes int, textType uint8) *models.InlineKe
 				},
 			}
 		}
+	case TEXT_ONLY:
+		{
+			return &models.InlineKeyboardMarkup{
+				InlineKeyboard: [][]models.InlineKeyboardButton{
+					{
+						{Text: fmt.Sprintf("Только текст! (%d)", upvotes), CallbackData: "button_upvote"},
+						{Text: fmt.Sprintf("Не только текст (%d)", downvotes), CallbackData: "button_downvote"},
+					},
+				},
+			}
+		}
 	}
 
 	return &models.InlineKeyboardMarkup{}

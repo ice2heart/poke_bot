@@ -181,6 +181,7 @@ func main() {
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/voteblan", bot.MatchTypePrefix, banHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/mute", bot.MatchTypePrefix, muteHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/voteeblan", bot.MatchTypePrefix, muteHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/text_only", bot.MatchTypePrefix, textOnlyHandler)
 	myBot.RegisterHandler(bot.HandlerTypeCallbackQueryData, "b_", bot.MatchTypePrefix, actionCallbackHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/test", bot.MatchTypePrefix, testHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypePrefix, startHandler)
@@ -520,6 +521,10 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		case MUTE:
 			{
 				muteUser(ctx, b, s)
+			}
+		case TEXT_ONLY:
+			{
+				textOnlyUser(ctx, b, s)
 			}
 		}
 

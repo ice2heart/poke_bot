@@ -14,6 +14,7 @@ import (
 const (
 	BAN uint8 = iota
 	MUTE
+	TEXT_ONLY
 )
 
 type BanInfo struct {
