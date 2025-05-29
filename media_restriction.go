@@ -33,7 +33,7 @@ func makeTextOnlyMessage(b *BanInfo) string {
 	}
 	messageLink := fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
 
-	return fmt.Sprintf("Голосуем за режим только текст (без стикеров и картинок) %s \nНеобходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
+	return fmt.Sprintf("Голосуем за режим только текст \\(без стикеров и кратинок\\) %s \nНеобходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
 }
 
 func getTextOnlyInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInfo *BanInfo, err error) {
