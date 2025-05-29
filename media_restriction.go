@@ -33,7 +33,7 @@ func makeTextOnlyMessage(b *BanInfo) string {
 	}
 	messageLink := fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
 
-	return fmt.Sprintf("Голосуем за мут %s \nНеобходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
+	return fmt.Sprintf("Голосуем за режим только текст (без стикеров и кратинок) %s \nНеобходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
 }
 
 func getTextOnlyInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInfo *BanInfo, err error) {
@@ -222,9 +222,9 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		MessageID: int(s.RequestMessageID),
 	})
 
-	resultText := fmt.Sprintf("Успешно замьючен на %s", getTextOnlyDurationText(*user))
+	resultText := fmt.Sprintf("Успешно ограничен только текстом на %s", getTextOnlyDurationText(*user))
 	if !result {
-		resultText = "Не смог замьютить"
+		resultText = "Не смог ограничить"
 	}
 	maker, err := getUser(ctx, s.OwnerID)
 	ownerInfo := ""
@@ -281,7 +281,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		// do not notify if you failed
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:    s.ChatID,
-			Text:      fmt.Sprintf("Вам выдан мут на %s, надеемся на ваше понимание", getTextOnlyDurationText(*user)),
+			Text:      fmt.Sprintf("Вам выдано ограничение на использование картинок и стикеров на %s, надеемся на ваше понимание", getTextOnlyDurationText(*user)),
 			ParseMode: models.ParseModeMarkdown,
 			ReplyParameters: &models.ReplyParameters{
 				ChatID:    s.ChatID,
