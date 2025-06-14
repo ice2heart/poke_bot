@@ -326,6 +326,10 @@ func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, me
 	if userID == superAdminID {
 		return true
 	}
+
+	adminsMux.Lock()
+	defer adminsMux.Unlock()
+
 	chatAdmins := checkAdmins(ctx, b, chatID)
 	_, rep := chatAdmins[userID]
 	if !rep {

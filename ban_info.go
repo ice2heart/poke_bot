@@ -161,6 +161,8 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 
 	var banUsertag string
 
+	cacheBanInfo(s.ChatID, s.UserID)
+
 	if len(s.UserName) != 0 {
 		banUsertag = fmt.Sprintf("@%s", escape(s.UserName))
 	} else {
@@ -184,8 +186,10 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 
 	if !result && len(s.UserName) != 0 {
 		// Use the MTproto client to try ban
+		settingsMux.Lock()
 		settings := getChatSettings(ctx, s.ChatID)
 		result, err = client.BanUser(ctx, settings.ChatID, settings.ChatAccessHash, s.UserName)
+		settingsMux.Unlock()
 		if err != nil {
 			log.Printf("MTProto ban is failed: %v", err)
 		}
@@ -215,11 +219,9 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	if err == nil {
 		ownerInfo = fmt.Sprintf("Автор голосовалки %s", maker.toClickableUsername())
 	}
-	chatNameSettongs, ok := settings[s.ChatID]
-	chatName := ""
-	if ok {
-		chatName = chatNameSettongs.ChatName
-	}
+
+	chatName := getChatNameFromSettings(s.ChatID)
+
 	report := fmt.Sprintf("%s\n%s %s\n%s", chatName, resultText, banUsertag, ownerInfo)
 
 	userMessages, err := getUserLastNthMessages(ctx, s.UserID, s.ChatID, 20)
@@ -261,6 +263,9 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	// }
 	pushBanLog(ctx, s)
 	disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
+
+	settingsMux.Lock()
+	defer settingsMux.Unlock()
 
 	chatSettings := getChatSettings(ctx, s.ChatID)
 
