@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-telegram/bot"
@@ -19,6 +21,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/ice2heart/poke_bot/cache"
 	"github.com/ice2heart/poke_bot/mtproto"
 )
 
@@ -35,10 +38,15 @@ var (
 
 	mdRegex *regexp.Regexp = regexp.MustCompile(`(['_~>#!=\-])`)
 
-	sessions map[int64]map[int64]*BanInfo = make(map[int64]map[int64]*BanInfo)
+	sessionsMux sync.Mutex
+	sessions    map[int64]map[int64]*BanInfo = make(map[int64]map[int64]*BanInfo)
 
-	settings map[int64]*DyncmicSetting
-	admins   map[int64]map[int64]bool
+	settingsMux sync.Mutex
+	settings    map[int64]*DyncmicSetting
+
+	adminsMux sync.Mutex
+	admins    map[int64]map[int64]bool
+	banCache  map[int64]*cacheEntity[int64, struct{}] = make(map[int64]*cacheEntity[int64, struct{}])
 
 	superAdminID int64
 
@@ -192,7 +200,7 @@ func main() {
 }
 
 func botRemovedFromChat(ctx context.Context, chatID int64) {
-
+	settingsMux.Lock()
 	chatSettings, ok := settings[chatID]
 	if !ok {
 		chatSettings = &DyncmicSetting{ChatName: "unknown name", ChatUsername: "unknown username"}
@@ -203,11 +211,19 @@ func botRemovedFromChat(ctx context.Context, chatID int64) {
 	if ok {
 		delete(settings, chatID)
 	}
+	settingsMux.Unlock()
+
 	deleteChatSettings(ctx, chatID)
+	adminsMux.Lock()
 	_, ok = admins[chatID]
 	if ok {
 		delete(admins, chatID)
 	}
+	adminsMux.Unlock()
+
+	sessionsMux.Lock()
+	delete(banCache, chatID)
+	sessionsMux.Unlock()
 
 	myBot.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: 198082233,
@@ -216,6 +232,8 @@ func botRemovedFromChat(ctx context.Context, chatID int64) {
 }
 
 func getChatAdmins(ctx context.Context) {
+	settingsMux.Lock()
+	defer settingsMux.Unlock()
 	for k := range settings {
 		chat, err := myBot.GetChat(ctx, &bot.GetChatParams{
 			ChatID: k,
@@ -242,7 +260,9 @@ func getChatAdmins(ctx context.Context) {
 			botRemovedFromChat(ctx, k)
 			continue
 		}
+		adminsMux.Lock()
 		admins[k] = adminsList
+		adminsMux.Unlock()
 	}
 }
 
@@ -260,7 +280,9 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 					ChatID: 198082233,
 					Text:   fmt.Sprintf("Bot added to chat \"%s\" @%s", update.MyChatMember.Chat.Title, update.MyChatMember.Chat.Username),
 				})
+				settingsMux.Lock()
 				getChatSettings(ctx, update.MyChatMember.Chat.ID)
+				settingsMux.Unlock()
 			}
 		}
 
@@ -386,6 +408,9 @@ func getChatSettings(ctx context.Context, chatId int64) (chatSettings *DyncmicSe
 
 func checkForDuplicates(ctx context.Context, chatId int64, userid int64, b *bot.Bot, update *models.Update) bool {
 	// Check for duplicates
+	sessionsMux.Lock()
+	defer sessionsMux.Unlock()
+
 	chatSessions, ok := sessions[chatId]
 	if !ok {
 		sessions[chatId] = map[int64]*BanInfo{}
@@ -397,6 +422,12 @@ func checkForDuplicates(ctx context.Context, chatId int64, userid int64, b *bot.
 			continue
 		}
 		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("[Уже есть голосовалка](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), responceMessage))
+		return true
+	}
+
+	cached := getCachedBanInfo(chatId, userid)
+	if cached {
+		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Этого пользователя уже недавно забанили")
 		return true
 	}
 	return false
@@ -424,6 +455,9 @@ func makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 		return false
 	}
 	log.Printf("makeVoteMessage: Responce id %d\n", responceMessage.ID)
+
+	sessionsMux.Lock()
+	defer sessionsMux.Unlock()
 
 	chatSessions, ok := sessions[banInfo.ChatID]
 	if !ok {
@@ -455,9 +489,14 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		return
 	}
 	log.Printf("Get vote %s, from message id: %d chatid: %d", update.CallbackQuery.Data, update.CallbackQuery.Message.Message.ID, update.CallbackQuery.Message.Message.Chat.ID)
+
+	sessionsMux.Lock()
+	defer sessionsMux.Unlock()
+
 	chatSession, ok := sessions[update.CallbackQuery.Message.Message.Chat.ID]
 	if !ok {
 		log.Printf("something goes wrong, there are no session for chatID: %d", update.CallbackQuery.Message.Message.Chat.ID)
+		sessionsMux.Unlock()
 		return
 	}
 	s, ok := chatSession[int64(update.CallbackQuery.Message.Message.ID)]
@@ -469,6 +508,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 
 	superPoke := 0
 
+	adminsMux.Lock()
 	isAdmin, isInAdminList := checkAdmins(ctx, b, s.ChatID)[update.CallbackQuery.From.ID]
 	if isInAdminList && isAdmin {
 		superPoke = 1
@@ -476,6 +516,7 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 			superPoke = -1
 		}
 	}
+	adminsMux.Unlock()
 
 	if s.OwnerID == update.CallbackQuery.From.ID && superPoke == 0 {
 		log.Println("try to vote to it's own")
@@ -571,6 +612,7 @@ func checkAdmins(ctx context.Context, b *bot.Bot, chatID int64) (chatAdmins map[
 
 func pauseHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	// CHECK
+	adminsMux.Lock()
 	chatAdmins := checkAdmins(ctx, b, update.Message.Chat.ID)
 	_, rep := chatAdmins[update.Message.From.ID]
 
@@ -579,9 +621,13 @@ func pauseHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		MessageID: update.Message.ID,
 	})
 	if !rep {
+		adminsMux.Unlock()
 		return
 	}
+	adminsMux.Unlock()
 	log.Printf("Pause handler: %s", update.Message.Text)
+
+	settingsMux.Lock()
 	chatSettings := getChatSettings(ctx, update.Message.Chat.ID)
 	var message string
 	if strings.Contains(update.Message.Text, "enable") {
@@ -592,6 +638,7 @@ func pauseHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		message = "Пауза выключенна"
 	}
 	writeChatSettings(ctx, update.Message.Chat.ID, chatSettings)
+	settingsMux.Unlock()
 
 	replay, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
@@ -618,15 +665,19 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	pokeConter := 0
 
 	chatId := update.Message.Chat.ID
+
+	settingsMux.Lock()
 	chatSettings := getChatSettings(ctx, chatId)
 	senderId := update.Message.From.ID
 	if update.Message.SenderChat != nil {
 		senderId = update.Message.SenderChat.ID
 	}
 	if chatSettings.Pause {
+		settingsMux.Unlock()
 		onPauseMessage(ctx, b, update.Message)
 		return
 	}
+	settingsMux.Unlock()
 
 	if len(update.Message.Entities) == 1 {
 		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape(fmt.Sprintf("Для использования бота необходимо указать ему ссылку на сообщение или указать пользователя\nНапример:\n@%s https://t.me/c/1657123097/2854347\n/ban https://t.me/c/1657123097/2854347\n/ban @username", myID)))
@@ -831,10 +882,14 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
+
+			settingsMux.Lock()
 			chatSettings := getChatSettings(ctx, data.ChatID)
 			chatSettings.Pause = true
 			settings[data.ChatID] = chatSettings
 			writeChatSettings(ctx, data.ChatID, chatSettings)
+			settingsMux.Unlock()
+
 			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Пауза активированна", false)
 		}
 	case ACTION_UNPAUSE_CHAT:
@@ -843,10 +898,14 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
+
+			settingsMux.Lock()
 			chatSettings := getChatSettings(ctx, data.ChatID)
 			chatSettings.Pause = false
 			settings[data.ChatID] = chatSettings
 			writeChatSettings(ctx, data.ChatID, chatSettings)
+			settingsMux.Unlock()
+
 			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Пауза деактивированна", false)
 		}
 	case ACTION_ENABLED_LOG:
@@ -856,14 +915,19 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 				return
 			}
 			userID := update.CallbackQuery.From.ID
+
+			settingsMux.Lock()
 			chatSettings := getChatSettings(ctx, data.ChatID)
 			if slices.Contains(chatSettings.LogRecipients, userID) {
+				settingsMux.Unlock()
 				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы уже в списке на получение отчётов", false)
 				return
 			}
 			chatSettings.LogRecipients = append(chatSettings.LogRecipients, userID)
 			settings[data.ChatID] = chatSettings
 			writeChatSettings(ctx, data.ChatID, chatSettings)
+			settingsMux.Unlock()
+
 			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы добавлены в список на получение отчётов", false)
 		}
 	case ACTION_DISABLED_LOG:
@@ -873,15 +937,20 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 				return
 			}
 			userID := update.CallbackQuery.From.ID
+
+			settingsMux.Lock()
 			chatSettings := getChatSettings(ctx, data.ChatID)
 			index := slices.Index(chatSettings.LogRecipients, userID)
 			if index == -1 {
+				settingsMux.Unlock()
 				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы не будете получать отчёты", false)
 				return
 			}
 			chatSettings.LogRecipients = slices.Delete(chatSettings.LogRecipients, index, index+1)
 			settings[data.ChatID] = chatSettings
 			writeChatSettings(ctx, data.ChatID, chatSettings)
+			settingsMux.Unlock()
+
 			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы не будете получать отчёты", false)
 
 		}
@@ -1003,6 +1072,10 @@ func testHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 // TODO: have to be a better func
 func getChatsForAdmin(ctx context.Context, b *bot.Bot, userID int64) []Chat {
 	chats := make([]Chat, 0, 4)
+
+	adminsMux.Lock()
+	defer adminsMux.Unlock()
+
 	for k, v := range admins {
 		_, ok := v[userID]
 		if !ok && userID != superAdminID {
@@ -1038,4 +1111,68 @@ func startHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	// chat menu
 	return
 
+}
+
+func getChatNameFromSettings(chatID int64) string {
+	settingsMux.Lock()
+	defer settingsMux.Unlock()
+
+	var name string
+	setting, ok := settings[chatID]
+	if ok {
+		name = setting.ChatName
+	}
+
+	return name
+}
+
+type cacheEntity[K comparable, V any] struct {
+	cache  cache.Cache[K, V]
+	cancel context.CancelFunc
+}
+
+func cacheBanInfo(chatID int64, userID int64) {
+	chatCache, ok := banCache[chatID]
+	if !ok {
+		chatCache = newCache()
+
+		banCache[chatID] = chatCache
+	}
+
+	chatCache.cache.Set(userID, struct{}{}, time.Minute*30)
+}
+
+func getCachedBanInfo(chatID int64, userID int64) bool {
+	chatCache, ok := banCache[chatID]
+	if !ok {
+		chatCache = newCache()
+
+		banCache[chatID] = chatCache
+		return false
+	}
+
+	_, ok = chatCache.cache.Get(userID)
+	return ok
+}
+
+func newCache() *cacheEntity[int64, struct{}] {
+	ctx, cancel := context.WithCancel(context.Background())
+	chatCache := &cacheEntity[int64, struct{}]{
+		cancel: cancel,
+		cache:  *cache.New[int64, struct{}](ctx),
+	}
+
+	go func() {
+		intCh := make(chan os.Signal, 1)
+		signal.Notify(intCh, os.Interrupt, os.Kill, syscall.SIGTERM)
+
+		select {
+		case <-intCh:
+			cancel()
+		case <-ctx.Done():
+			cancel()
+		}
+	}()
+
+	return chatCache
 }
