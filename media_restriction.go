@@ -100,11 +100,15 @@ func getTextOnlyInfo(ctx context.Context, chatID int64, messageID int64) (banInf
 
 func textOnlyHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatId := update.Message.Chat.ID
+
+	settingsMux.Lock()
 	chatSettings := getChatSettings(ctx, chatId)
 	if chatSettings.Pause {
+		settingsMux.Unlock()
 		onPauseMessage(ctx, b, update.Message)
 		return
 	}
+	settingsMux.Unlock()
 
 	if len(update.Message.Entities) == 1 {
 		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape("Для использования бота необходимо указать ему ссылку на сообщение или указать пользователя\nНапример:\n/text_only https://t.me/c/1657123097/2854347\n/text_only @username"))
@@ -231,11 +235,9 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	if err == nil {
 		ownerInfo = fmt.Sprintf("Автор голосовалки %s", maker.toClickableUsername())
 	}
-	chatNameSettongs, ok := settings[s.ChatID]
-	chatName := ""
-	if ok {
-		chatName = chatNameSettongs.ChatName
-	}
+
+	chatName := getChatNameFromSettings(s.ChatID)
+
 	report := fmt.Sprintf("%s\n%s %s\n%s", chatName, resultText, banUsertag, ownerInfo)
 
 	userMessages, err := getUserLastNthMessages(ctx, s.UserID, s.ChatID, 20)
@@ -262,6 +264,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	pushBanLog(ctx, s)
 	disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
 
+	settingsMux.Lock()
 	chatSettings := getChatSettings(ctx, s.ChatID)
 
 	for _, v := range chatSettings.LogRecipients {
@@ -276,6 +279,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			log.Printf("Can't send report %v", err)
 		}
 	}
+	settingsMux.Unlock()
 
 	if result {
 		// do not notify if you failed
