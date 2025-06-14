@@ -425,11 +425,6 @@ func checkForDuplicates(ctx context.Context, chatId int64, userid int64, b *bot.
 		return true
 	}
 
-	cached := getCachedBanInfo(chatId, userid)
-	if cached {
-		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Этого пользователя уже недавно забанили")
-		return true
-	}
 	return false
 }
 
@@ -496,7 +491,6 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 	chatSession, ok := sessions[update.CallbackQuery.Message.Message.Chat.ID]
 	if !ok {
 		log.Printf("something goes wrong, there are no session for chatID: %d", update.CallbackQuery.Message.Message.Chat.ID)
-		sessionsMux.Unlock()
 		return
 	}
 	s, ok := chatSession[int64(update.CallbackQuery.Message.Message.ID)]
@@ -615,16 +609,15 @@ func pauseHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	adminsMux.Lock()
 	chatAdmins := checkAdmins(ctx, b, update.Message.Chat.ID)
 	_, rep := chatAdmins[update.Message.From.ID]
+	adminsMux.Unlock()
 
 	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 		ChatID:    update.Message.Chat.ID,
 		MessageID: update.Message.ID,
 	})
 	if !rep {
-		adminsMux.Unlock()
 		return
 	}
-	adminsMux.Unlock()
 	log.Printf("Pause handler: %s", update.Message.Text)
 
 	settingsMux.Lock()
@@ -752,6 +745,16 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if checkForDuplicates(ctx, chatId, banInfo.UserID, b, update) {
 			continue
 		}
+
+		sessionsMux.Lock()
+		cached := getCachedBanInfo(banInfo.ChatID, banInfo.UserID)
+		sessionsMux.Unlock()
+
+		if cached {
+			systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Этот пользователь уже был недавно забанен", true)
+			continue
+		}
+
 		log.Printf("Start vote process score for user %d %d", banInfo.UserID, banInfo.Score)
 		if !makeVoteMessage(ctx, banInfo, b) {
 			continue
