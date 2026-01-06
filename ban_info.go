@@ -138,6 +138,7 @@ func getBanInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInf
 	banInfo.ProfileName = user.AltUsername
 	banInfo.UserName = user.Username
 	banInfo.Score = calculateRequiredRating(user.Counter)
+	log.Printf("Username %v alt %v chat id %v userid %v\n", user.Username, user.AltUsername, chatID, userID)
 
 	messages, err := getUserLastNthMessages(ctx, userID, chatID, 1)
 	if err != nil {

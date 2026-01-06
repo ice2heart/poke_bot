@@ -227,7 +227,8 @@ func (client *MTProtoHelper) GetUserByUsername(ctx context.Context, username str
 func (client *MTProtoHelper) GetPeerByUsername(ctx context.Context, username string) (peer tg.InputPeerClass, err error) {
 
 	// var peer tg.InputPeerClass
-	userInfo, err := client.api.ContactsResolveUsername(ctx, username)
+	usernameRequest := tg.ContactsResolveUsernameRequest{Username: username}
+	userInfo, err := client.api.ContactsResolveUsername(ctx, &usernameRequest)
 	if err != nil {
 		log.Printf("ContactsResolveUsername faild %v", err)
 		return nil, err

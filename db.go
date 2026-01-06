@@ -295,20 +295,20 @@ func deleteChatSettings(ctx context.Context, chatID int64) {
 	}
 }
 
-func getUserLastNthMessages(ctx context.Context, userID int64, chatID int64, amaount uint16) (ret []ChatMessage, err error) {
+func getUserLastNthMessages(ctx context.Context, userID int64, chatID int64, amount uint16) (ret []ChatMessage, err error) {
 	filter := bson.D{
 		{Key: "chatid", Value: chatID},
 		{Key: "userid", Value: userID},
 	}
-	options := options.Find().SetSort(bson.D{{Key: "$natural", Value: -1}}).SetLimit(int64(amaount))
+	options := options.Find().SetSort(bson.D{{"date", -1}}).SetLimit(int64(amount))
 	cursor, err := chatMessages.Find(ctx, filter, options)
 	if err != nil {
-		log.Printf("Cant't get last %dth elemets: %v", amaount, err)
+		log.Printf("Cant't get last %dth elemets: %v", amount, err)
 		return nil, err
 	}
 	err = cursor.All(ctx, &ret)
 	if err != nil {
-		log.Printf("Cant't parse last %dth elemets: %v", amaount, err)
+		log.Printf("Cant't parse last %dth elemets: %v", amount, err)
 		return nil, err
 	}
 	return ret, nil
