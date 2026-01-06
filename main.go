@@ -193,6 +193,7 @@ func main() {
 	myBot.RegisterHandler(bot.HandlerTypeCallbackQueryData, "b_", bot.MatchTypePrefix, actionCallbackHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/test", bot.MatchTypePrefix, testHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypePrefix, startHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/delete", bot.MatchTypePrefix, deleteMessageHandler)
 	log.Printf("Starting %s", me.Username)
 	// each 12 hours update admins list
 	go ticker(ctx, 43200, getChatAdmins)
@@ -1178,4 +1179,51 @@ func newCache() *cacheEntity[int64, struct{}] {
 	}()
 
 	return chatCache
+}
+
+func deleteMessageHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	adminsMux.Lock()
+	chatAdmins := checkAdmins(ctx, b, update.Message.Chat.ID)
+	_, rep := chatAdmins[update.Message.From.ID]
+	adminsMux.Unlock()
+
+	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+		ChatID:    update.Message.Chat.ID,
+		MessageID: update.Message.ID,
+	})
+	if !rep {
+		return
+	}
+	chatId := update.Message.Chat.ID
+	for _, v := range update.Message.Entities {
+		if v.Type == models.MessageEntityTypeURL {
+			log.Printf("%v %s", v, v.URL)
+			rxResult := linkRegex.FindAllStringSubmatch(update.Message.Text[v.Offset:v.Offset+v.Length], -1)
+			for i := range rxResult {
+				if rxResult[i][1] == "" {
+					linkUsername := rxResult[i][2]
+					if linkUsername != update.Message.Chat.Username {
+						log.Printf("Chat Username is not match %s != %s\n", linkUsername, update.Message.Chat.Username)
+						continue
+					}
+				} else {
+					parsedID, _ := strconv.ParseInt("-100"+rxResult[i][2], 10, 64)
+					if chatId != parsedID {
+						log.Printf("Chat ID is not match %d != %d\n", parsedID, chatId)
+						continue
+					}
+				}
+				pokeMessageID, err := strconv.ParseInt(rxResult[i][3], 10, 64)
+				if err != nil {
+					log.Printf("Message ID is curropted %s", rxResult[i][3])
+					continue
+				}
+				b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+					ChatID:    chatId,
+					MessageID: int(pokeMessageID),
+				})
+			}
+		}
+
+	}
 }

@@ -300,7 +300,7 @@ func getUserLastNthMessages(ctx context.Context, userID int64, chatID int64, amo
 		{Key: "chatid", Value: chatID},
 		{Key: "userid", Value: userID},
 	}
-	options := options.Find().SetSort(bson.D{{"date", -1}}).SetLimit(int64(amount))
+	options := options.Find().SetSort(bson.D{{Key: "date", Value: -1}}).SetLimit(int64(amount))
 	cursor, err := chatMessages.Find(ctx, filter, options)
 	if err != nil {
 		log.Printf("Cant't get last %dth elemets: %v", amount, err)
