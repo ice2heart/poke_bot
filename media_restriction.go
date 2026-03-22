@@ -182,9 +182,11 @@ func textOnlyHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	user, err := getUser(ctx, s.UserID)
+	var userRecord UserRecord
 	var banUsertag string
 
 	if err == nil {
+		userRecord = *user
 		banUsertag = user.toClickableUsername()
 	} else {
 		banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
@@ -193,7 +195,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	result, err := b.RestrictChatMember(ctx, &bot.RestrictChatMemberParams{
 		ChatID:    s.ChatID,
 		UserID:    s.UserID,
-		UntilDate: getTextOnlyDuration(*user),
+		UntilDate: getTextOnlyDuration(userRecord),
 		Permissions: &models.ChatPermissions{
 			CanSendMessages:      true,
 			CanSendOtherMessages: false,
@@ -226,7 +228,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		MessageID: int(s.RequestMessageID),
 	})
 
-	resultText := fmt.Sprintf("Успешно ограничен только текстом на %s", getTextOnlyDurationText(*user))
+	resultText := fmt.Sprintf("Успешно ограничен только текстом на %s", getTextOnlyDurationText(userRecord))
 	if !result {
 		resultText = "Не смог ограничить"
 	}
@@ -259,6 +261,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		escapedText = firstN(escapedText, 3500)
 		report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
 	}
+	report = strings.ReplaceAll(report, "-", "\\-")
 	// log.Println(report)
 
 	pushBanLog(ctx, s)
@@ -285,7 +288,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		// do not notify if you failed
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:    s.ChatID,
-			Text:      fmt.Sprintf("Вам выдано ограничение на использование картинок и стикеров на %s, надеемся на ваше понимание", getTextOnlyDurationText(*user)),
+			Text:      fmt.Sprintf("Вам выдано ограничение на использование картинок и стикеров на %s, надеемся на ваше понимание", getTextOnlyDurationText(userRecord)),
 			ParseMode: models.ParseModeMarkdown,
 			ReplyParameters: &models.ReplyParameters{
 				ChatID:    s.ChatID,
@@ -301,7 +304,7 @@ func getTextOnlyDurationInDays(user UserRecord) int {
 }
 func getTextOnlyDuration(user UserRecord) int {
 	currentTime := int(time.Now().Unix())
-	return currentTime + 86400*(getMuteDurationInDays(user))
+	return currentTime + 86400*(getTextOnlyDurationInDays(user))
 }
 
 func getTextOnlyDurationTextFromDays(muteDuratuionInDays int) (muteDuratuion string) {

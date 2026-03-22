@@ -318,7 +318,19 @@ func unmuteUser(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (re
 }
 
 func deleteAllMessages(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (result bool, err error) {
-
+	messages, err := getUserLastNthMessages(ctx, userId, chatId, 20)
+	if err != nil {
+		return false, err
+	}
+	for _, msg := range messages {
+		_, delErr := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    chatId,
+			MessageID: int(msg.MessageID),
+		})
+		if delErr != nil {
+			log.Printf("deleteAllMessages: can't delete message %d: %v", msg.MessageID, delErr)
+		}
+	}
 	return true, nil
 }
 

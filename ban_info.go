@@ -244,6 +244,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		escapedText = firstN(escapedText, 3500)
 		report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
 	}
+	report = strings.ReplaceAll(report, "-", "\\-")
 	// log.Println(report)
 	for _, v := range messageIDs {
 		_, err = b.DeleteMessage(ctx, &bot.DeleteMessageParams{

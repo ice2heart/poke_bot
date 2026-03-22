@@ -596,7 +596,8 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 func checkAdmins(ctx context.Context, b *bot.Bot, chatID int64) (chatAdmins map[int64]bool) {
 	chatAdmins, rep := admins[chatID]
 	if !rep {
-		chatAdmins, err := getAdmins(ctx, b, chatID)
+		var err error
+		chatAdmins, err = getAdmins(ctx, b, chatID)
 		if err != nil {
 			return make(map[int64]bool)
 		}
@@ -783,7 +784,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 	switch data.Action {
 	case ACTION_UNBAN:
 		{
-			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
 			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
@@ -835,7 +836,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 		}
 	case ACTION_DELETE_ALL:
 		{
-			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
 			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
@@ -883,7 +884,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 	case ACTION_PAUSE_CHAT:
 		{
 			log.Printf("ACTION_PAUSE_CHAT %d", data.ChatID)
-			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
 
@@ -899,7 +900,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 	case ACTION_UNPAUSE_CHAT:
 		{
 			log.Printf("ACTION_UNPAUSE_CHAT %d", data.ChatID)
-			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
 
@@ -915,7 +916,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 	case ACTION_ENABLED_LOG:
 		{
 			log.Printf("ACTION_ENABLED_LOG %d", data.ChatID)
-			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
 			userID := update.CallbackQuery.From.ID
@@ -937,7 +938,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 	case ACTION_DISABLED_LOG:
 		{
 			log.Printf("ACTION_DISABLED_LOG %d", data.ChatID)
-			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
 			userID := update.CallbackQuery.From.ID
@@ -960,7 +961,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 		}
 	case ACTION_UNMUTE:
 		{
-			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
 			userIdRaw, ok := data.Data[DATA_TYPE_USERID]
@@ -991,7 +992,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 		}
 	case ACTION_LEAVE_CHAT:
 		{
-			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.From.ID, update.CallbackQuery.Message.Message.ID) {
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {
 				return
 			}
 			log.Printf("ACTION_LEAVE_CHAT userid: %d chatid: %d", update.CallbackQuery.Message.Message.From.ID, data.ChatID)

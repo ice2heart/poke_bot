@@ -182,9 +182,11 @@ func muteHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	user, err := getUser(ctx, s.UserID)
+	var userRecord UserRecord
 	var banUsertag string
 
 	if err == nil {
+		userRecord = *user
 		banUsertag = user.toClickableUsername()
 	} else {
 		banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
@@ -193,7 +195,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	result, err := b.RestrictChatMember(ctx, &bot.RestrictChatMemberParams{
 		ChatID:    s.ChatID,
 		UserID:    s.UserID,
-		UntilDate: getMuteDuration(*user),
+		UntilDate: getMuteDuration(userRecord),
 		Permissions: &models.ChatPermissions{
 			CanSendOtherMessages:  false,
 			CanAddWebPagePreviews: false,
@@ -223,7 +225,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		MessageID: int(s.RequestMessageID),
 	})
 
-	resultText := fmt.Sprintf("Успешно замьючен на %s", getMuteDurationText(*user))
+	resultText := fmt.Sprintf("Успешно замьючен на %s", getMuteDurationText(userRecord))
 	if !result {
 		resultText = "Не смог замьютить"
 	}
@@ -257,6 +259,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
 	}
 	// log.Println(report)
+	report = strings.ReplaceAll(report, "-", "\\-")
 
 	pushBanLog(ctx, s)
 	disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
@@ -282,7 +285,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		// do not notify if you failed
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:    s.ChatID,
-			Text:      fmt.Sprintf("Вам выдан мут на %s, надеемся на ваше понимание", getMuteDurationText(*user)),
+			Text:      fmt.Sprintf("Вам выдан мут на %s, надеемся на ваше понимание", getMuteDurationText(userRecord)),
 			ParseMode: models.ParseModeMarkdown,
 			ReplyParameters: &models.ReplyParameters{
 				ChatID:    s.ChatID,
