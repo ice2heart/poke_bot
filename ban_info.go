@@ -63,7 +63,7 @@ func makeBanMessage(b *BanInfo) string {
 		messageLink = fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
 	}
 
-	return fmt.Sprintf("Голосуем за бан %s \nНеобходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
+	return fmt.Sprintf("Голосование за блокировку %s\nДля решения необходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
 }
 
 func calculateRequiredRating(userScore uint32) (requiredScore int16) {
@@ -116,7 +116,7 @@ func getBanInfoByUserIDNoDB(chatID int64, userID int64, username string) (banInf
 		UserID:          userID,
 		UserName:        username,
 		Score:           LOW_SCORE,
-		LastMessage:     "Not found",
+		LastMessage:     "Сообщение не найдено",
 		TargetMessageID: 0,
 		Type:            BAN,
 	}
@@ -208,14 +208,14 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		MessageID: int(s.RequestMessageID),
 	})
 
-	resultText := "Успешно забанен"
+	resultText := "Заблокирован успешно"
 	if !result {
-		resultText = "Не смог забанить"
+		resultText = "Не удалось заблокировать"
 	}
 	maker, err := getUser(ctx, s.OwnerID)
 	ownerInfo := ""
 	if err == nil {
-		ownerInfo = fmt.Sprintf("Автор голосовалки %s", maker.toClickableUsername())
+		ownerInfo = fmt.Sprintf("Инициатор голосования: %s", maker.toClickableUsername())
 	}
 
 	chatName := getChatNameFromSettings(s.ChatID)

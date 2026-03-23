@@ -33,7 +33,7 @@ func makeTextOnlyMessage(b *BanInfo) string {
 	}
 	messageLink := fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
 
-	return fmt.Sprintf("Голосуем за режим только текст \\(без стикеров и кратинок\\) %s \nНеобходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
+	return fmt.Sprintf("Голосование за режим только текст \\(без стикеров и картинок\\) %s\nДля решения необходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
 }
 
 func getTextOnlyInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInfo *BanInfo, err error) {
@@ -53,7 +53,7 @@ func getTextOnlyInfoByUserID(ctx context.Context, chatID int64, userID int64) (b
 
 	messages, err := getUserLastNthMessages(ctx, userID, chatID, 1)
 	if err != nil || len(messages) == 0 {
-		banInfo.LastMessage = "Not found"
+		banInfo.LastMessage = "Сообщение не найдено"
 	} else {
 		banInfo.LastMessage = messages[0].Text
 		banInfo.TargetMessageID = messages[0].MessageID
@@ -111,7 +111,7 @@ func textOnlyHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	settingsMux.Unlock()
 
 	if len(update.Message.Entities) == 1 {
-		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape("Для использования бота необходимо указать ему ссылку на сообщение или указать пользователя\nНапример:\n/text_only https://t.me/c/1657123097/2854347\n/text_only @username"))
+		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape("Укажите ссылку на сообщение или пользователя.\nПримеры:\n/text_only https://t.me/c/1657123097/2854347\n/text_only @username"))
 	}
 
 	log.Printf("[textOnlyHandler] new /text_only from userID=%d in chatID=%d: %q", update.Message.From.ID, chatId, update.Message.Text)
@@ -152,7 +152,7 @@ func textOnlyHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 				}
 				banInfo, err = getTextOnlyInfo(ctx, chatId, chatLink.TargetMessageID)
 				if err != nil {
-					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извините сообщение не найдено, исользуйте альтернативный метод через \"/text_only @username\"")
+					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Сообщение не найдено. Используйте альтернативный метод: /text_only @username")
 					continue
 				}
 				banInfo.TargetMessageID = chatLink.TargetMessageID
@@ -228,14 +228,14 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		MessageID: int(s.RequestMessageID),
 	})
 
-	resultText := fmt.Sprintf("Успешно ограничен только текстом на %s", getTextOnlyDurationText(userRecord))
+	resultText := fmt.Sprintf("Ограничение «только текст» выдано на %s", getTextOnlyDurationText(userRecord))
 	if !result {
-		resultText = "Не смог ограничить"
+		resultText = "Не удалось выдать ограничение"
 	}
 	maker, err := getUser(ctx, s.OwnerID)
 	ownerInfo := ""
 	if err == nil {
-		ownerInfo = fmt.Sprintf("Автор голосовалки %s", maker.toClickableUsername())
+		ownerInfo = fmt.Sprintf("Инициатор голосования: %s", maker.toClickableUsername())
 	}
 
 	chatName := getChatNameFromSettings(s.ChatID)
@@ -288,7 +288,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		// do not notify if you failed
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:    s.ChatID,
-			Text:      fmt.Sprintf("Вам выдано ограничение на использование картинок и стикеров на %s, надеемся на ваше понимание", getTextOnlyDurationText(userRecord)),
+			Text:      fmt.Sprintf("Вам запрещена отправка картинок и стикеров на %s. Надеемся на понимание.", getTextOnlyDurationText(userRecord)),
 			ParseMode: models.ParseModeMarkdown,
 			ReplyParameters: &models.ReplyParameters{
 				ChatID:    s.ChatID,

@@ -201,7 +201,6 @@ func main() {
 }
 
 func botRemovedFromChat(ctx context.Context, chatID int64) {
-	settingsMux.Lock()
 	chatSettings, ok := settings[chatID]
 	if !ok {
 		chatSettings = &DynamicSetting{ChatName: "unknown name", ChatUsername: "unknown username"}
@@ -212,23 +211,22 @@ func botRemovedFromChat(ctx context.Context, chatID int64) {
 	if ok {
 		delete(settings, chatID)
 	}
-	settingsMux.Unlock()
 
 	deleteChatSettings(ctx, chatID)
-	adminsMux.Lock()
+	// adminsMux.Lock()
 	_, ok = admins[chatID]
 	if ok {
 		delete(admins, chatID)
 	}
-	adminsMux.Unlock()
+	// adminsMux.Unlock()
 
-	sessionsMux.Lock()
+	// sessionsMux.Lock()
 	delete(banCache, chatID)
-	sessionsMux.Unlock()
+	// sessionsMux.Unlock()
 
 	myBot.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: 198082233,
-		Text:   fmt.Sprintf("Bot deleted from chat \"%s\" @%s %d", name, username, chatID),
+		Text:   fmt.Sprintf("Bot removed from chat \"%s\" (@%s, id: %d)", name, username, chatID),
 	})
 }
 
@@ -279,7 +277,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 			if update.MyChatMember.NewChatMember.Member != nil && update.MyChatMember.Chat.ID < 0 {
 				b.SendMessage(ctx, &bot.SendMessageParams{
 					ChatID: 198082233,
-					Text:   fmt.Sprintf("Bot added to chat \"%s\" @%s", update.MyChatMember.Chat.Title, update.MyChatMember.Chat.Username),
+					Text:   fmt.Sprintf("Bot added to chat \"%s\" (@%s)", update.MyChatMember.Chat.Title, update.MyChatMember.Chat.Username),
 				})
 				settingsMux.Lock()
 				getChatSettings(ctx, update.MyChatMember.Chat.ID)
@@ -422,7 +420,7 @@ func checkForDuplicates(ctx context.Context, chatId int64, userid int64, b *bot.
 		if messageSession.UserID != userid {
 			continue
 		}
-		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("[Уже есть голосовалка](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), responseMessage))
+		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("[Голосование уже создано](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), responseMessage))
 		return true
 	}
 
@@ -467,7 +465,7 @@ func makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 }
 
 func onPauseMessage(ctx context.Context, b *bot.Bot, message *models.Message) {
-	systemAnswerToMessage(ctx, b, message.Chat.ID, message.ID, fmt.Sprintf("[%s %s](tg://user?id=%d), бот на паузе", message.From.FirstName, message.From.LastName, message.From.ID))
+	systemAnswerToMessage(ctx, b, message.Chat.ID, message.ID, fmt.Sprintf("[%s %s](tg://user?id=%d), бот в данный момент приостановлен", message.From.FirstName, message.From.LastName, message.From.ID))
 }
 
 func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
@@ -627,10 +625,10 @@ func pauseHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	var message string
 	if strings.Contains(update.Message.Text, "enable") {
 		chatSettings.Pause = true
-		message = "Пауза активированна"
+		message = "Режим паузы активирован"
 	} else {
 		chatSettings.Pause = false
-		message = "Пауза выключенна"
+		message = "Режим паузы деактивирован"
 	}
 	writeChatSettings(ctx, update.Message.Chat.ID, chatSettings)
 	settingsMux.Unlock()
@@ -674,8 +672,8 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 	settingsMux.Unlock()
 
-	if len(update.Message.Entities) == 1 {
-		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape(fmt.Sprintf("Для использования бота необходимо указать ему ссылку на сообщение или указать пользователя\nНапример:\n@%s https://t.me/c/1657123097/2854347\n/ban https://t.me/c/1657123097/2854347\n/ban @username", myID)))
+	if len(update.Message.Entities) == 1 && update.Message.Entities[0].Type != models.MessageEntityTypeBotCommand {
+		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape(fmt.Sprintf("Укажите ссылку на сообщение или пользователя.\nПримеры:\n@%s https://t.me/c/1657123097/2854347\n/ban https://t.me/c/1657123097/2854347\n/ban @username", myID)))
 	}
 
 	for _, v := range update.Message.Entities {
@@ -701,7 +699,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 				log.Printf("[banHandler] getBanInfoByUsername failed for username=%q in chatID=%d: %v", username, chatId, err)
 				userInfo, err := client.GetUserByUsername(ctx, username)
 				if err != nil {
-					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("Извините пользователь с ником %v не найден", username), true)
+					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("Пользователь @%v не найден", username), true)
 					continue
 				}
 				//
@@ -732,7 +730,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 				}
 				banInfo, err = getBanInfo(ctx, chatId, pokeMessageID)
 				if err != nil {
-					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извините сообщение не найдено, исользуйте альтернативный метод через \"/ban @username\"", true)
+					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Сообщение не найдено. Используйте альтернативный метод: /ban @username", true)
 					continue
 				}
 				banInfo.TargetMessageID = pokeMessageID
@@ -753,7 +751,7 @@ func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		sessionsMux.Unlock()
 
 		if cached {
-			systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Этот пользователь уже был недавно забанен", true)
+			systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Пользователь уже был заблокирован недавно", true)
 			continue
 		}
 
@@ -792,7 +790,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 				log.Printf("[actionCallbackHandler] ACTION_UNBAN: missing userID in callback data, chatID=%d", data.ChatID)
 				b.SendMessage(ctx, &bot.SendMessageParams{
 					ChatID: update.CallbackQuery.From.ID,
-					Text:   "Не смог разбанить пользователя",
+					Text:   "Не удалось разблокировать пользователя",
 					ReplyParameters: &models.ReplyParameters{
 						ChatID:    update.CallbackQuery.From.ID,
 						MessageID: update.CallbackQuery.Message.Message.ID,
@@ -805,7 +803,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 				log.Printf("[actionCallbackHandler] ACTION_UNBAN: unbanUser failed for chatID=%d: %v", data.ChatID, err)
 				b.SendMessage(ctx, &bot.SendMessageParams{
 					ChatID: update.CallbackQuery.From.ID,
-					Text:   "Не смог разбанить пользователя",
+					Text:   "Не удалось разблокировать пользователя",
 					ReplyParameters: &models.ReplyParameters{
 						ChatID:    update.CallbackQuery.From.ID,
 						MessageID: update.CallbackQuery.Message.Message.ID,
@@ -817,7 +815,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 				log.Printf("[actionCallbackHandler] ACTION_UNBAN: unban returned false for chatID=%d", data.ChatID)
 				b.SendMessage(ctx, &bot.SendMessageParams{
 					ChatID: update.CallbackQuery.From.ID,
-					Text:   "Не смог разбанить пользователя",
+					Text:   "Не удалось разблокировать пользователя",
 					ReplyParameters: &models.ReplyParameters{
 						ChatID:    update.CallbackQuery.From.ID,
 						MessageID: update.CallbackQuery.Message.Message.ID,
@@ -827,7 +825,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			}
 			b.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: update.CallbackQuery.From.ID,
-				Text:   "Пользователь разбанен",
+				Text:   "Пользователь разблокирован",
 				ReplyParameters: &models.ReplyParameters{
 					ChatID:    update.CallbackQuery.From.ID,
 					MessageID: update.CallbackQuery.Message.Message.ID,
@@ -877,7 +875,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			b.EditMessageText(ctx, &bot.EditMessageTextParams{
 				ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
 				MessageID:   update.CallbackQuery.Message.Message.ID,
-				Text:        fmt.Sprintf("Действия для чата %s", chatName),
+				Text:        fmt.Sprintf("Управление чатом: %s", chatName),
 				ReplyMarkup: getChatActionsKeyboard(data.ChatID),
 			})
 		}
@@ -895,7 +893,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			writeChatSettings(ctx, data.ChatID, chatSettings)
 			settingsMux.Unlock()
 
-			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Пауза активированна", false)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Режим паузы активирован", false)
 		}
 	case ACTION_UNPAUSE_CHAT:
 		{
@@ -911,7 +909,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			writeChatSettings(ctx, data.ChatID, chatSettings)
 			settingsMux.Unlock()
 
-			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Пауза деактивированна", false)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Режим паузы деактивирован", false)
 		}
 	case ACTION_ENABLED_LOG:
 		{
@@ -948,7 +946,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			index := slices.Index(chatSettings.LogRecipients, userID)
 			if index == -1 {
 				settingsMux.Unlock()
-				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы не будете получать отчёты", false)
+				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы не состоите в списке получателей отчётов", false)
 				return
 			}
 			chatSettings.LogRecipients = slices.Delete(chatSettings.LogRecipients, index, index+1)
@@ -956,7 +954,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			writeChatSettings(ctx, data.ChatID, chatSettings)
 			settingsMux.Unlock()
 
-			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы не будете получать отчёты", false)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы удалены из списка получателей отчётов", false)
 
 		}
 	case ACTION_UNMUTE:
@@ -982,7 +980,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			}
 			b.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: update.CallbackQuery.From.ID,
-				Text:   "Пользователь размьючен",
+				Text:   "Ограничения пользователя сняты",
 				ReplyParameters: &models.ReplyParameters{
 					ChatID:    update.CallbackQuery.From.ID,
 					MessageID: update.CallbackQuery.Message.Message.ID,
@@ -998,7 +996,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			log.Printf("[actionCallbackHandler] ACTION_LEAVE_CHAT: chatID=%d by userID=%d", data.ChatID, update.CallbackQuery.From.ID)
 			b.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: data.ChatID,
-				Text:   "Bye bye!",
+				Text:   "Покидаю чат. До свидания!",
 			})
 			_, err := b.LeaveChat(ctx, &bot.LeaveChatParams{
 				ChatID: data.ChatID,

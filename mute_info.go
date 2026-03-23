@@ -33,7 +33,7 @@ func makeMuteMessage(b *BanInfo) string {
 	}
 	messageLink := fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
 
-	return fmt.Sprintf("Голосуем за мут %s \nНеобходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
+	return fmt.Sprintf("Голосование за мут %s\nДля решения необходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
 }
 
 func getMuteInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInfo *BanInfo, err error) {
@@ -53,7 +53,7 @@ func getMuteInfoByUserID(ctx context.Context, chatID int64, userID int64) (banIn
 
 	messages, err := getUserLastNthMessages(ctx, userID, chatID, 1)
 	if err != nil || len(messages) == 0 {
-		banInfo.LastMessage = "Not found"
+		banInfo.LastMessage = "Сообщение не найдено"
 	} else {
 		banInfo.LastMessage = messages[0].Text
 		banInfo.TargetMessageID = messages[0].MessageID
@@ -111,7 +111,7 @@ func muteHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	settingsMux.Unlock()
 
 	if len(update.Message.Entities) == 1 {
-		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape("Для использования бота необходимо указать ему ссылку на сообщение или указать пользователя\nНапример:\n/mute https://t.me/c/1657123097/2854347\n/mute @username"))
+		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape("Укажите ссылку на сообщение или пользователя.\nПримеры:\n/mute https://t.me/c/1657123097/2854347\n/mute @username"))
 	}
 
 	log.Printf("[muteHandler] new /mute from userID=%d in chatID=%d: %q", update.Message.From.ID, chatId, update.Message.Text)
@@ -152,7 +152,7 @@ func muteHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 				}
 				banInfo, err = getMuteInfo(ctx, chatId, chatLink.TargetMessageID)
 				if err != nil {
-					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Извините сообщение не найдено, исользуйте альтернативный метод через \"/mute @username\"")
+					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Сообщение не найдено. Используйте альтернативный метод: /mute @username")
 					continue
 				}
 				banInfo.TargetMessageID = chatLink.TargetMessageID
@@ -225,14 +225,14 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		MessageID: int(s.RequestMessageID),
 	})
 
-	resultText := fmt.Sprintf("Успешно замьючен на %s", getMuteDurationText(userRecord))
+	resultText := fmt.Sprintf("Мут выдан на %s", getMuteDurationText(userRecord))
 	if !result {
-		resultText = "Не смог замьютить"
+		resultText = "Не удалось выдать мут"
 	}
 	maker, err := getUser(ctx, s.OwnerID)
 	ownerInfo := ""
 	if err == nil {
-		ownerInfo = fmt.Sprintf("Автор голосовалки %s", maker.toClickableUsername())
+		ownerInfo = fmt.Sprintf("Инициатор голосования: %s", maker.toClickableUsername())
 	}
 
 	chatName := getChatNameFromSettings(s.ChatID)
@@ -285,7 +285,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		// do not notify if you failed
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:    s.ChatID,
-			Text:      fmt.Sprintf("Вам выдан мут на %s, надеемся на ваше понимание", getMuteDurationText(userRecord)),
+			Text:      fmt.Sprintf("Вам выдан мут на %s. Надеемся на понимание.", getMuteDurationText(userRecord)),
 			ParseMode: models.ParseModeMarkdown,
 			ReplyParameters: &models.ReplyParameters{
 				ChatID:    s.ChatID,

@@ -35,8 +35,8 @@ func getVoteButtons(upvotes int, downvotes int, textType uint8) *models.InlineKe
 			return &models.InlineKeyboardMarkup{
 				InlineKeyboard: [][]models.InlineKeyboardButton{
 					{
-						{Text: fmt.Sprintf("Бан! (%d)", upvotes), CallbackData: "button_upvote"},
-						{Text: fmt.Sprintf("Не бан (%d)", downvotes), CallbackData: "button_downvote"},
+						{Text: fmt.Sprintf("За бан (%d)", upvotes), CallbackData: "button_upvote"},
+						{Text: fmt.Sprintf("Против бана (%d)", downvotes), CallbackData: "button_downvote"},
 					},
 				},
 			}
@@ -46,8 +46,8 @@ func getVoteButtons(upvotes int, downvotes int, textType uint8) *models.InlineKe
 			return &models.InlineKeyboardMarkup{
 				InlineKeyboard: [][]models.InlineKeyboardButton{
 					{
-						{Text: fmt.Sprintf("Мут! (%d)", upvotes), CallbackData: "button_upvote"},
-						{Text: fmt.Sprintf("Не мут (%d)", downvotes), CallbackData: "button_downvote"},
+						{Text: fmt.Sprintf("За мут (%d)", upvotes), CallbackData: "button_upvote"},
+						{Text: fmt.Sprintf("Против мута (%d)", downvotes), CallbackData: "button_downvote"},
 					},
 				},
 			}
@@ -57,8 +57,8 @@ func getVoteButtons(upvotes int, downvotes int, textType uint8) *models.InlineKe
 			return &models.InlineKeyboardMarkup{
 				InlineKeyboard: [][]models.InlineKeyboardButton{
 					{
-						{Text: fmt.Sprintf("Только текст! (%d)", upvotes), CallbackData: "button_upvote"},
-						{Text: fmt.Sprintf("Не только текст (%d)", downvotes), CallbackData: "button_downvote"},
+						{Text: fmt.Sprintf("Только текст (%d)", upvotes), CallbackData: "button_upvote"},
+						{Text: fmt.Sprintf("Обычный режим (%d)", downvotes), CallbackData: "button_downvote"},
 					},
 				},
 			}
@@ -86,7 +86,7 @@ func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMar
 	return &models.InlineKeyboardMarkup{
 		InlineKeyboard: [][]models.InlineKeyboardButton{
 			{
-				{Text: "Разбанить", CallbackData: fmt.Sprintf("b_%s", unbanData)},
+				{Text: "Разблокировать", CallbackData: fmt.Sprintf("b_%s", unbanData)},
 			},
 		},
 	}
@@ -109,7 +109,7 @@ func getMuteMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMa
 	return &models.InlineKeyboardMarkup{
 		InlineKeyboard: [][]models.InlineKeyboardButton{
 			{
-				{Text: "Unmute", CallbackData: fmt.Sprintf("b_%s", unmuteData)},
+				{Text: "Снять мут", CallbackData: fmt.Sprintf("b_%s", unmuteData)},
 			},
 		},
 	}
@@ -135,7 +135,7 @@ func getChatListKeyboard(chatList []Chat) *models.InlineKeyboardMarkup {
 		log.Printf("[getChatListKeyboard] marshal error for refresh button: %v", err)
 		return nil
 	}
-	buttons[len(chatList)] = []models.InlineKeyboardButton{{Text: "🗘 обновить", CallbackData: fmt.Sprintf("b_%s", refresh)}}
+	buttons[len(chatList)] = []models.InlineKeyboardButton{{Text: "🗘 Обновить", CallbackData: fmt.Sprintf("b_%s", refresh)}}
 	return &models.InlineKeyboardMarkup{InlineKeyboard: buttons}
 
 }
@@ -346,7 +346,7 @@ func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, me
 	_, rep := chatAdmins[userID]
 	if !rep {
 		log.Printf("[isUserAdmin] unauthorized admin action: userID=%d in chatID=%d", userID, chatID)
-		systemAnswerToMessage(ctx, b, messageChatID, messageID, "Необходимо быть админом для чата")
+		systemAnswerToMessage(ctx, b, messageChatID, messageID, "Недостаточно прав. Необходимо быть администратором чата.")
 		return false
 	}
 	return true
