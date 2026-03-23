@@ -23,7 +23,7 @@ type Chat struct {
 
 func makePublicGroupString(groupID int64) string {
 	// https://gist.github.com/nafiesl/4ad622f344cd1dc3bb1ecbe468ff9f8a
-	// groudid has leeading -100
+	// groupID has leading -100
 	return publicGroupRX.ReplaceAllString(strconv.FormatInt(groupID, 10), "")
 }
 
@@ -77,7 +77,7 @@ func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMar
 	})
 
 	if err != nil {
-		log.Printf("Can't make unban data %v", err)
+		log.Printf("[getBanMessageKeyboard] marshal error for chatID=%d userID=%d: %v", chatId, userId, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -100,7 +100,7 @@ func getMuteMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMa
 	})
 
 	if err != nil {
-		log.Printf("getMuteMessageKeyboard: Can't make unmute data %v", err)
+		log.Printf("[getMuteMessageKeyboard] marshal error for chatID=%d userID=%d: %v", chatId, userId, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -123,7 +123,7 @@ func getChatListKeyboard(chatList []Chat) *models.InlineKeyboardMarkup {
 			ChatID: v.ChatID,
 		})
 		if err != nil {
-			log.Printf("Make chat data error: %v", err)
+			log.Printf("[getChatListKeyboard] marshal error for chatID=%d: %v", v.ChatID, err)
 			continue
 		}
 		buttons[k] = []models.InlineKeyboardButton{{Text: v.ChatName, CallbackData: fmt.Sprintf("b_%s", showChat)}}
@@ -132,7 +132,7 @@ func getChatListKeyboard(chatList []Chat) *models.InlineKeyboardMarkup {
 		Action: ACTION_SHOW_CHAT_LIST,
 	})
 	if err != nil {
-		log.Printf("Make chat data error: %v", err)
+		log.Printf("[getChatListKeyboard] marshal error for refresh button: %v", err)
 		return nil
 	}
 	buttons[len(chatList)] = []models.InlineKeyboardButton{{Text: "🗘 обновить", CallbackData: fmt.Sprintf("b_%s", refresh)}}
@@ -146,7 +146,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		ChatID: chatID,
 	})
 	if err != nil {
-		log.Printf("Can't make a pause button %v", err)
+		log.Printf("[getChatActionsKeyboard] marshal error for pause button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -156,7 +156,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		ChatID: chatID,
 	})
 	if err != nil {
-		log.Printf("Can't make a unpause button %v", err)
+		log.Printf("[getChatActionsKeyboard] marshal error for unpause button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -166,7 +166,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		ChatID: chatID,
 	})
 	if err != nil {
-		log.Printf("Can't make a enable log button %v", err)
+		log.Printf("[getChatActionsKeyboard] marshal error for enable-log button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -176,7 +176,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		ChatID: chatID,
 	})
 	if err != nil {
-		log.Printf("Can't make a disble log button %v", err)
+		log.Printf("[getChatActionsKeyboard] marshal error for disable-log button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -185,7 +185,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		Action: ACTION_SHOW_CHAT_LIST,
 	})
 	if err != nil {
-		log.Printf("Can't make a back button %v", err)
+		log.Printf("[getChatActionsKeyboard] marshal error for back button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -195,7 +195,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		ChatID: chatID,
 	})
 	if err != nil {
-		log.Printf("Can't make a leave chat button %v", err)
+		log.Printf("[getChatActionsKeyboard] marshal error for leave-chat button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -220,7 +220,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 }
 
 func getChatName(ctx context.Context, b *bot.Bot, chatID int64) string {
-	// TODO: make it cacheble
+	// TODO: make it cacheable
 	chatInfo, err := b.GetChat(ctx, &bot.GetChatParams{
 		ChatID: chatID,
 	})
@@ -237,7 +237,7 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool,
 	})
 	ret = make(map[int64]bool)
 	if err != nil {
-		log.Printf("Can't get chat %d admins: %v", chat, err)
+		log.Printf("[getAdmins] GetChatAdministrators failed for chatID=%d: %v", chat, err)
 		return nil, err
 	}
 	for _, admin := range admins {
@@ -247,7 +247,7 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool,
 		case models.ChatMemberTypeOwner:
 			ret[admin.Owner.User.ID] = true
 		default:
-			log.Printf("Some strange type here %v", admin.Type)
+			log.Printf("[getAdmins] unexpected member type %q in chatID=%d", admin.Type, chat)
 		}
 	}
 	return ret, nil
@@ -265,13 +265,13 @@ func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messag
 		},
 	})
 	if err != nil {
-		log.Printf("error: Can't send message to chatid %d messageId %d: %v", chatId, messageId, err)
+		log.Printf("[systemAnswerToMessage] SendMessage failed: chatID=%d messageID=%d: %v", chatId, messageId, err)
 		return
 	}
 	removeChatID := chatId
 	removeReplyID := reply.ID
 	removeOriginalID := messageId
-	go dealy(ctx, 30, func() {
+	go delay(ctx, 30, func() {
 		if len(deleteOrigin) == 0 {
 			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 				ChatID:    removeChatID,
@@ -328,7 +328,7 @@ func deleteAllMessages(ctx context.Context, b *bot.Bot, chatId int64, userId int
 			MessageID: int(msg.MessageID),
 		})
 		if delErr != nil {
-			log.Printf("deleteAllMessages: can't delete message %d: %v", msg.MessageID, delErr)
+			log.Printf("[deleteAllMessages] can't delete messageID=%d in chatID=%d: %v", msg.MessageID, chatId, delErr)
 		}
 	}
 	return true, nil
@@ -345,7 +345,7 @@ func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, me
 	chatAdmins := checkAdmins(ctx, b, chatID)
 	_, rep := chatAdmins[userID]
 	if !rep {
-		log.Printf("User %d try to use admin prev for chat %d", userID, chatID)
+		log.Printf("[isUserAdmin] unauthorized admin action: userID=%d in chatID=%d", userID, chatID)
 		systemAnswerToMessage(ctx, b, messageChatID, messageID, "Необходимо быть админом для чата")
 		return false
 	}

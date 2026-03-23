@@ -21,7 +21,7 @@ var (
 	chatMessages           *mongo.Collection
 	chatSettingsCollection *mongo.Collection
 
-	upserOptions *options.UpdateOptions
+	upsertOptions *options.UpdateOptions
 )
 
 // DB schema
@@ -57,7 +57,7 @@ type ScoreResult struct {
 	Userid int64 `bson:"userid"`
 }
 
-type DyncmicSetting struct {
+type DynamicSetting struct {
 	ChatID         int64
 	Pause          bool
 	LogRecipients  []int64
@@ -74,9 +74,9 @@ func initDb(ctx context.Context, connectionLine string, dbName string) {
 	if err := client.Ping(ctx, readpref.Primary()); err != nil {
 		panic(err)
 	}
-	log.Printf("MongoDB is connected")
-	upserOptions = &options.UpdateOptions{}
-	upserOptions.SetUpsert(true)
+	log.Printf("[initDb] MongoDB connected, database=%q", dbName)
+	upsertOptions = &options.UpdateOptions{}
+	upsertOptions.SetUpsert(true)
 	dataBase = client.Database(dbName)
 	usersCollection = dataBase.Collection("users")
 	banLogs = dataBase.Collection("ban_log")
@@ -109,9 +109,9 @@ func userPlusOneMessage(ctx context.Context, uID int64, username string, altname
 			Value: bson.D{{Key: "altUsername", Value: altname}},
 		},
 	)
-	_, err := usersCollection.UpdateOne(ctx, filter, update, upserOptions)
+	_, err := usersCollection.UpdateOne(ctx, filter, update, upsertOptions)
 	if err != nil {
-		log.Printf("Upsert of user counter went wrong %v", err)
+		log.Printf("[userPlusOneMessage] upsert failed for userID=%d: %v", uID, err)
 	}
 }
 
@@ -124,7 +124,7 @@ func userAddMuteCounter(ctx context.Context, uID int64) error {
 			{Key: "muteCounter", Value: 1},
 		}},
 	}
-	_, err := usersCollection.UpdateOne(ctx, filter, update, upserOptions)
+	_, err := usersCollection.UpdateOne(ctx, filter, update, upsertOptions)
 	return err
 }
 
@@ -137,9 +137,9 @@ func userMakeVote(ctx context.Context, uID int64, amount int) {
 			{Key: "voteCounter", Value: amount},
 		}},
 	}
-	_, err := usersCollection.UpdateOne(ctx, filter, update, upserOptions)
+	_, err := usersCollection.UpdateOne(ctx, filter, update, upsertOptions)
 	if err != nil {
-		log.Printf("Upsert of user vote maker went wrong %v", err)
+		log.Printf("[userMakeVote] upsert failed for userID=%d amount=%d: %v", uID, amount, err)
 	}
 }
 
@@ -151,7 +151,7 @@ func getRatingFromUserID(ctx context.Context, uID int64) (score *ScoreResult, er
 	var user UserRecord
 	err = result.Decode(&user)
 	if err != nil {
-		log.Printf("Can't get user score %v", err)
+		log.Printf("[getRatingFromUserID] FindOne failed for userID=%d: %v", uID, err)
 		return nil, err
 	}
 
@@ -170,7 +170,7 @@ func getRatingFromUsername(ctx context.Context, username string) (score *ScoreRe
 	var user UserRecord
 	err = result.Decode(&user)
 	if err != nil {
-		log.Printf("Can't get user score %v", err)
+		log.Printf("[getRatingFromUsername] FindOne failed for username=%q: %v", username, err)
 		return nil, err
 	}
 
@@ -189,7 +189,7 @@ func getUser(ctx context.Context, uID int64) (userRecord *UserRecord, err error)
 	var user UserRecord
 	err = result.Decode(&user)
 	if err != nil {
-		log.Printf("Can't get user score %v", err)
+		log.Printf("[getUser] FindOne failed for userID=%d: %v", uID, err)
 		return nil, err
 	}
 	return &user, nil
@@ -198,7 +198,7 @@ func getUser(ctx context.Context, uID int64) (userRecord *UserRecord, err error)
 func pushBanLog(ctx context.Context, banInfo *BanInfo) {
 	_, err := banLogs.InsertOne(ctx, banInfo)
 	if err != nil {
-		log.Printf("Can't insert ban info %v", err)
+		log.Printf("[pushBanLog] insert failed for userID=%d chatID=%d type=%d: %v", banInfo.UserID, banInfo.ChatID, banInfo.Type, err)
 	}
 
 }
@@ -206,7 +206,7 @@ func pushBanLog(ctx context.Context, banInfo *BanInfo) {
 func saveMessage(ctx context.Context, message *ChatMessage) {
 	_, err := chatMessages.InsertOne(ctx, message)
 	if err != nil {
-		log.Printf("Can't insert message %v", err)
+		log.Printf("[saveMessage] insert failed for messageID=%d chatID=%d userID=%d: %v", message.MessageID, message.ChatID, message.UserID, err)
 		return
 	}
 }
@@ -230,7 +230,7 @@ func updateMessage(ctx context.Context, message *ChatMessage) {
 	}
 	_, err := chatMessages.UpdateMany(ctx, filter, updatePipeline)
 	if err != nil {
-		log.Printf("Can't update edited message %v", err)
+		log.Printf("[updateMessage] UpdateMany failed for messageID=%d chatID=%d: %v", message.MessageID, message.ChatID, err)
 		return
 	}
 }
@@ -244,24 +244,24 @@ func getMessageInfo(ctx context.Context, chatID int64, messageID int64) (chatMes
 	var message ChatMessage
 	err = result.Decode(&message)
 	if err != nil {
-		log.Printf("Cant't get message info: %v", err)
+		log.Printf("[getMessageInfo] FindOne failed for messageID=%d chatID=%d: %v", messageID, chatID, err)
 		return nil, err
 	}
 	return &message, nil
 }
 
-func readChatsSettings(ctx context.Context) (ret map[int64]*DyncmicSetting) {
+func readChatsSettings(ctx context.Context) (ret map[int64]*DynamicSetting) {
 	filter := bson.D{}
 	cursor, err := chatSettingsCollection.Find(ctx, filter)
 	if err != nil {
-		log.Panic("Can't read settings")
+		log.Panicf("[readChatsSettings] Find failed: %v", err)
 	}
-	ret = make(map[int64]*DyncmicSetting)
+	ret = make(map[int64]*DynamicSetting)
 	for cursor.Next(ctx) {
-		var result DyncmicSetting
+		var result DynamicSetting
 		err := cursor.Decode(&result)
 		if err != nil {
-			log.Println(err)
+			log.Printf("[readChatsSettings] Decode failed: %v", err)
 			continue
 		}
 		ret[result.ChatID] = &result
@@ -270,7 +270,7 @@ func readChatsSettings(ctx context.Context) (ret map[int64]*DyncmicSetting) {
 
 }
 
-func writeChatSettings(ctx context.Context, chatID int64, settings *DyncmicSetting) {
+func writeChatSettings(ctx context.Context, chatID int64, settings *DynamicSetting) {
 	filter := bson.D{
 		{Key: "chatid", Value: chatID},
 	}
@@ -278,9 +278,9 @@ func writeChatSettings(ctx context.Context, chatID int64, settings *DyncmicSetti
 		{Key: "$set", Value: settings},
 	}
 
-	_, err := chatSettingsCollection.UpdateOne(ctx, filter, update, upserOptions)
+	_, err := chatSettingsCollection.UpdateOne(ctx, filter, update, upsertOptions)
 	if err != nil {
-		log.Printf("Upsert of the chat settings went wrong %v", err)
+		log.Printf("[writeChatSettings] upsert failed for chatID=%d: %v", chatID, err)
 	}
 
 }
@@ -291,7 +291,7 @@ func deleteChatSettings(ctx context.Context, chatID int64) {
 	}
 	_, err := chatSettingsCollection.DeleteOne(ctx, filter)
 	if err != nil {
-		log.Printf("Delete of the chat settings went wrong %v", err)
+		log.Printf("[deleteChatSettings] DeleteOne failed for chatID=%d: %v", chatID, err)
 	}
 }
 
@@ -303,12 +303,12 @@ func getUserLastNthMessages(ctx context.Context, userID int64, chatID int64, amo
 	options := options.Find().SetSort(bson.D{{Key: "date", Value: -1}}).SetLimit(int64(amount))
 	cursor, err := chatMessages.Find(ctx, filter, options)
 	if err != nil {
-		log.Printf("Cant't get last %dth elemets: %v", amount, err)
+		log.Printf("[getUserLastNthMessages] Find failed for userID=%d chatID=%d limit=%d: %v", userID, chatID, amount, err)
 		return nil, err
 	}
 	err = cursor.All(ctx, &ret)
 	if err != nil {
-		log.Printf("Cant't parse last %dth elemets: %v", amount, err)
+		log.Printf("[getUserLastNthMessages] cursor.All failed for userID=%d chatID=%d: %v", userID, chatID, err)
 		return nil, err
 	}
 	return ret, nil

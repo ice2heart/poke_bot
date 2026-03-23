@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -29,7 +28,7 @@ type BanInfo struct {
 	ProfileName      string
 	LastMessage      string
 	BanMessage       string
-	Voiters          map[int64]int8
+	Voters           map[int64]int8
 	Type             uint8
 }
 
@@ -138,7 +137,7 @@ func getBanInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInf
 	banInfo.ProfileName = user.AltUsername
 	banInfo.UserName = user.Username
 	banInfo.Score = calculateRequiredRating(user.Counter)
-	log.Printf("Username %v alt %v chat id %v userid %v\n", user.Username, user.AltUsername, chatID, userID)
+	log.Printf("[getBanInfoByUserID] resolved user: username=%q altUsername=%q chatID=%d userID=%d", user.Username, user.AltUsername, chatID, userID)
 
 	messages, err := getUserLastNthMessages(ctx, userID, chatID, 1)
 	if err != nil {
@@ -180,9 +179,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		UserID: s.UserID,
 	})
 	if err != nil {
-		log.Printf("Can't ban user %v ", err)
-		jcart, _ := json.MarshalIndent(s, "", "\t")
-		log.Println(string(jcart))
+		log.Printf("[banUser] BanChatMember failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 	}
 
 	if !result && len(s.UserName) != 0 {
@@ -192,7 +189,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		result, err = client.BanUser(ctx, settings.ChatID, settings.ChatAccessHash, s.UserName)
 		settingsMux.Unlock()
 		if err != nil {
-			log.Printf("MTProto ban is failed: %v", err)
+			log.Printf("[banUser] MTProto fallback ban failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 		}
 	}
 	//Delete the target
@@ -252,7 +249,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			MessageID: int(v),
 		})
 		if err != nil {
-			log.Printf("Can't delete messages for chat %d, user %d. IDs: %v. Err: %v", s.ChatID, s.UserID, v, err)
+			log.Printf("[banUser] can't delete messageID=%d for userID=%d in chatID=%d: %v", v, s.UserID, s.ChatID, err)
 		}
 	}
 	// this is works like a shit
@@ -280,7 +277,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			LinkPreviewOptions: disablePreview,
 		})
 		if err != nil {
-			log.Printf("Can't send report %v", err)
+			log.Printf("[banUser] can't send report to recipientID=%d: %v", v, err)
 		}
 	}
 }

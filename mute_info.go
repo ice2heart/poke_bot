@@ -114,40 +114,40 @@ func muteHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape("Для использования бота необходимо указать ему ссылку на сообщение или указать пользователя\nНапример:\n/mute https://t.me/c/1657123097/2854347\n/mute @username"))
 	}
 
-	log.Printf("MUTE: New message: %s", update.Message.Text)
+	log.Printf("[muteHandler] new /mute from userID=%d in chatID=%d: %q", update.Message.From.ID, chatId, update.Message.Text)
 
 	for _, v := range update.Message.Entities {
-		log.Printf("MUTE: Message entities type: %v, text %s", v.Type, update.Message.Text[v.Offset:v.Offset+v.Length])
+		log.Printf("[muteHandler] entity type=%v text=%q in chatID=%d", v.Type, update.Message.Text[v.Offset:v.Offset+v.Length], chatId)
 		var err error
 		var banInfo *BanInfo
 		if v.Type == models.MessageEntityTypeTextMention {
-			log.Printf("MUTE: user mentioned type: %v , userID: %v, Alt Name %v %v", v.Type, v.User.ID, v.User.FirstName, v.User.LastName)
+			log.Printf("[muteHandler] text mention: userID=%d name=%q %q in chatID=%d", v.User.ID, v.User.FirstName, v.User.LastName, chatId)
 			banInfo, err = getMuteInfoByUserID(ctx, chatId, v.User.ID)
 			if err != nil {
-				log.Printf("TODO: return error to user! %v", err)
+				log.Printf("[muteHandler] getMuteInfoByUserID failed for userID=%d in chatID=%d: %v", v.User.ID, chatId, err)
 				continue
 			}
 		}
 		if v.Type == models.MessageEntityTypeMention {
 			username := update.Message.Text[v.Offset+1 : v.Offset+v.Length]
-			log.Printf("MUTE: user mentioned username @%s", username)
+			log.Printf("[muteHandler] processing mention @%s in chatID=%d", username, chatId)
 			if username == myID {
 				continue
 			}
 			banInfo, err = getMuteInfoByUser(ctx, chatId, username)
 			if err != nil {
-				log.Printf("TODO: return error to user! %v", err)
+				log.Printf("[muteHandler] getMuteInfoByUser failed for username=%q in chatID=%d: %v", username, chatId, err)
 				continue
 			}
 		}
 		if v.Type == models.MessageEntityTypeURL {
-			log.Printf("MUTE: the message URL. The hidden url:%s, text: %s", v.URL, update.Message.Text[v.Offset:v.Offset+v.Length])
+			log.Printf("[muteHandler] processing URL entity in chatID=%d: text=%q hiddenURL=%q", chatId, update.Message.Text[v.Offset:v.Offset+v.Length], v.URL)
 
 			chatLinks := parseChatLink(update.Message.Text[v.Offset:v.Offset+v.Length], chatId, update.Message.Chat.Username)
 
 			for _, chatLink := range chatLinks {
 				if chatLink.err != nil {
-					log.Printf("MUTE: parsing link was failed: %v", chatLink.err)
+					log.Printf("[muteHandler] failed to parse chat link in chatID=%d: %v", chatId, chatLink.err)
 					continue
 				}
 				banInfo, err = getMuteInfo(ctx, chatId, chatLink.TargetMessageID)
@@ -172,7 +172,7 @@ func muteHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if checkForDuplicates(ctx, chatId, banInfo.UserID, b, update) {
 			continue
 		}
-		log.Printf("MUTE: Start vote process score for user %d score: %d", banInfo.UserID, banInfo.Score)
+		log.Printf("[muteHandler] starting mute vote: userID=%d chatID=%d requiredScore=%d", banInfo.UserID, chatId, banInfo.Score)
 		if !makeVoteMessage(ctx, banInfo, b) {
 			continue
 		}
@@ -204,13 +204,13 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		UseIndependentChatPermissions: false,
 	})
 	if err != nil {
-		log.Printf("Can't mute user %v %d ", err, s.ChatID)
+		log.Printf("[muteUser] RestrictChatMember failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 	}
 
 	if result {
 		err = userAddMuteCounter(ctx, s.UserID)
 		if err != nil {
-			log.Printf("Can't add mute counter %v %d ", err, s.ChatID)
+			log.Printf("[muteUser] userAddMuteCounter failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 		}
 	}
 
@@ -276,7 +276,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			LinkPreviewOptions: disablePreview,
 		})
 		if err != nil {
-			log.Printf("Can't send report %v", err)
+			log.Printf("[muteUser] can't send report to recipientID=%d: %v", v, err)
 		}
 	}
 	settingsMux.Unlock()
@@ -304,20 +304,20 @@ func getMuteDuration(user UserRecord) int {
 	return currentTime + 86400*(getMuteDurationInDays(user))
 }
 
-func getMuteDurationTextFromDays(muteDuratuionInDays int) (muteDuratuion string) {
-	if muteDuratuionInDays == 1 {
-		muteDuratuion = "сутки"
-	} else if muteDuratuionInDays%10 == 1 && muteDuratuionInDays >= 20 {
-		muteDuratuion = fmt.Sprintf("%d день", muteDuratuionInDays)
-	} else if (muteDuratuionInDays > 20 && muteDuratuionInDays%10 >= 5) || ((muteDuratuionInDays >= 5) && (muteDuratuionInDays <= 20)) || (muteDuratuionInDays > 20 && muteDuratuionInDays%10 == 0) {
-		muteDuratuion = fmt.Sprintf("%d дней", muteDuratuionInDays)
-	} else if muteDuratuionInDays < 5 || (muteDuratuionInDays > 20 && muteDuratuionInDays%10 < 5) {
-		muteDuratuion = fmt.Sprintf("%d дня", muteDuratuionInDays)
+func getMuteDurationTextFromDays(muteDurationInDays int) (muteDuration string) {
+	if muteDurationInDays == 1 {
+		muteDuration = "сутки"
+	} else if muteDurationInDays%10 == 1 && muteDurationInDays >= 20 {
+		muteDuration = fmt.Sprintf("%d день", muteDurationInDays)
+	} else if (muteDurationInDays > 20 && muteDurationInDays%10 >= 5) || ((muteDurationInDays >= 5) && (muteDurationInDays <= 20)) || (muteDurationInDays > 20 && muteDurationInDays%10 == 0) {
+		muteDuration = fmt.Sprintf("%d дней", muteDurationInDays)
+	} else if muteDurationInDays < 5 || (muteDurationInDays > 20 && muteDurationInDays%10 < 5) {
+		muteDuration = fmt.Sprintf("%d дня", muteDurationInDays)
 	}
 	return
 }
 
 func getMuteDurationText(user UserRecord) string {
-	muteDuratuionInDays := getMuteDurationInDays(user)
-	return getMuteDurationTextFromDays(muteDuratuionInDays)
+	muteDurationInDays := getMuteDurationInDays(user)
+	return getMuteDurationTextFromDays(muteDurationInDays)
 }

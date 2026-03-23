@@ -114,40 +114,40 @@ func textOnlyHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape("Для использования бота необходимо указать ему ссылку на сообщение или указать пользователя\nНапример:\n/text_only https://t.me/c/1657123097/2854347\n/text_only @username"))
 	}
 
-	log.Printf("TextOnly: New message: %s", update.Message.Text)
+	log.Printf("[textOnlyHandler] new /text_only from userID=%d in chatID=%d: %q", update.Message.From.ID, chatId, update.Message.Text)
 
 	for _, v := range update.Message.Entities {
-		log.Printf("TextOnly: Message entities type: %v, text %s", v.Type, update.Message.Text[v.Offset:v.Offset+v.Length])
+		log.Printf("[textOnlyHandler] entity type=%v text=%q in chatID=%d", v.Type, update.Message.Text[v.Offset:v.Offset+v.Length], chatId)
 		var err error
 		var banInfo *BanInfo
 		if v.Type == models.MessageEntityTypeTextMention {
-			log.Printf("TextOnly: user mentioned type: %v , userID: %v, Alt Name %v %v", v.Type, v.User.ID, v.User.FirstName, v.User.LastName)
+			log.Printf("[textOnlyHandler] text mention: userID=%d name=%q %q in chatID=%d", v.User.ID, v.User.FirstName, v.User.LastName, chatId)
 			banInfo, err = getTextOnlyInfoByUserID(ctx, chatId, v.User.ID)
 			if err != nil {
-				log.Printf("TODO: return error to user! %v", err)
+				log.Printf("[textOnlyHandler] getTextOnlyInfoByUserID failed for userID=%d in chatID=%d: %v", v.User.ID, chatId, err)
 				continue
 			}
 		}
 		if v.Type == models.MessageEntityTypeMention {
 			username := update.Message.Text[v.Offset+1 : v.Offset+v.Length]
-			log.Printf("TextOnly: user mentioned username @%s", username)
+			log.Printf("[textOnlyHandler] processing mention @%s in chatID=%d", username, chatId)
 			if username == myID {
 				continue
 			}
 			banInfo, err = getTextOnlyInfoByUser(ctx, chatId, username)
 			if err != nil {
-				log.Printf("TODO: return error to user! %v", err)
+				log.Printf("[textOnlyHandler] getTextOnlyInfoByUser failed for username=%q in chatID=%d: %v", username, chatId, err)
 				continue
 			}
 		}
 		if v.Type == models.MessageEntityTypeURL {
-			log.Printf("TextOnly: the message URL. The hidden url:%s, text: %s", v.URL, update.Message.Text[v.Offset:v.Offset+v.Length])
+			log.Printf("[textOnlyHandler] processing URL entity in chatID=%d: text=%q hiddenURL=%q", chatId, update.Message.Text[v.Offset:v.Offset+v.Length], v.URL)
 
 			chatLinks := parseChatLink(update.Message.Text[v.Offset:v.Offset+v.Length], chatId, update.Message.Chat.Username)
 
 			for _, chatLink := range chatLinks {
 				if chatLink.err != nil {
-					log.Printf("TextOnly: parsing link was failed: %v", chatLink.err)
+					log.Printf("[textOnlyHandler] failed to parse chat link in chatID=%d: %v", chatId, chatLink.err)
 					continue
 				}
 				banInfo, err = getTextOnlyInfo(ctx, chatId, chatLink.TargetMessageID)
@@ -172,7 +172,7 @@ func textOnlyHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if checkForDuplicates(ctx, chatId, banInfo.UserID, b, update) {
 			continue
 		}
-		log.Printf("TextOnly: Start vote process score for user %d score: %d", banInfo.UserID, banInfo.Score)
+		log.Printf("[textOnlyHandler] starting text-only vote: userID=%d chatID=%d requiredScore=%d", banInfo.UserID, chatId, banInfo.Score)
 		if !makeVoteMessage(ctx, banInfo, b) {
 			continue
 		}
@@ -207,13 +207,13 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		UseIndependentChatPermissions: false,
 	})
 	if err != nil {
-		log.Printf("Can't restrict user %v %d ", err, s.ChatID)
+		log.Printf("[textOnlyUser] RestrictChatMember failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 	}
 
 	if result {
 		err = userAddMuteCounter(ctx, s.UserID)
 		if err != nil {
-			log.Printf("Can't add restrict counter %v %d ", err, s.ChatID)
+			log.Printf("[textOnlyUser] userAddMuteCounter failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 		}
 	}
 
@@ -279,7 +279,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			LinkPreviewOptions: disablePreview,
 		})
 		if err != nil {
-			log.Printf("Can't send report %v", err)
+			log.Printf("[textOnlyUser] can't send report to recipientID=%d: %v", v, err)
 		}
 	}
 	settingsMux.Unlock()
@@ -307,20 +307,20 @@ func getTextOnlyDuration(user UserRecord) int {
 	return currentTime + 86400*(getTextOnlyDurationInDays(user))
 }
 
-func getTextOnlyDurationTextFromDays(muteDuratuionInDays int) (muteDuratuion string) {
-	if muteDuratuionInDays == 1 {
-		muteDuratuion = "сутки"
-	} else if muteDuratuionInDays%10 == 1 && muteDuratuionInDays >= 20 {
-		muteDuratuion = fmt.Sprintf("%d день", muteDuratuionInDays)
-	} else if (muteDuratuionInDays > 20 && muteDuratuionInDays%10 >= 5) || ((muteDuratuionInDays >= 5) && (muteDuratuionInDays <= 20)) || (muteDuratuionInDays > 20 && muteDuratuionInDays%10 == 0) {
-		muteDuratuion = fmt.Sprintf("%d дней", muteDuratuionInDays)
-	} else if muteDuratuionInDays < 5 || (muteDuratuionInDays > 20 && muteDuratuionInDays%10 < 5) {
-		muteDuratuion = fmt.Sprintf("%d дня", muteDuratuionInDays)
+func getTextOnlyDurationTextFromDays(muteDurationInDays int) (muteDuration string) {
+	if muteDurationInDays == 1 {
+		muteDuration = "сутки"
+	} else if muteDurationInDays%10 == 1 && muteDurationInDays >= 20 {
+		muteDuration = fmt.Sprintf("%d день", muteDurationInDays)
+	} else if (muteDurationInDays > 20 && muteDurationInDays%10 >= 5) || ((muteDurationInDays >= 5) && (muteDurationInDays <= 20)) || (muteDurationInDays > 20 && muteDurationInDays%10 == 0) {
+		muteDuration = fmt.Sprintf("%d дней", muteDurationInDays)
+	} else if muteDurationInDays < 5 || (muteDurationInDays > 20 && muteDurationInDays%10 < 5) {
+		muteDuration = fmt.Sprintf("%d дня", muteDurationInDays)
 	}
 	return
 }
 
 func getTextOnlyDurationText(user UserRecord) string {
-	textOnlyDuratuionInDays := getTextOnlyDurationInDays(user)
-	return getTextOnlyDurationTextFromDays(textOnlyDuratuionInDays)
+	textOnlyDurationInDays := getTextOnlyDurationInDays(user)
+	return getTextOnlyDurationTextFromDays(textOnlyDurationInDays)
 }
