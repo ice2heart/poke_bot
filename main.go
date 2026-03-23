@@ -190,6 +190,8 @@ func main() {
 	log.Printf("[main] bot started as @%s userID=%d", me.Username, me.ID)
 	// each 12 hours update admins list
 	go ticker(ctx, 43200, getChatAdmins)
+	// each 30 minutes expire votes older than 1.5 days
+	go ticker(ctx, 1800, expireOldVotes)
 	myBot.Start(ctx)
 }
 
@@ -258,6 +260,55 @@ func getChatAdmins(ctx context.Context) {
 	}
 }
 
+func expireOldVotes(ctx context.Context) {
+	const maxAge = 36 * time.Hour // 1.5 days
+
+	sessionsMux.Lock()
+	defer sessionsMux.Unlock()
+
+	for chatID, chatSession := range sessions {
+		for msgID, s := range chatSession {
+			if time.Since(s.CreatedAt) < maxAge {
+				continue
+			}
+			log.Printf("[expireOldVotes] expiring vote messageID=%d chatID=%d userID=%d", msgID, chatID, s.UserID)
+			myBot.UnpinChatMessage(ctx, &bot.UnpinChatMessageParams{
+				ChatID:    chatID,
+				MessageID: int(msgID),
+			})
+			myBot.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    chatID,
+				MessageID: int(msgID),
+			})
+			myBot.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    chatID,
+				MessageID: int(s.RequestMessageID),
+			})
+			var username string
+			if s.UserName == "" {
+				username = fmt.Sprintf("[%s](tg://user?id=%d)", strings.TrimSpace(escape(s.ProfileName)), s.UserID)
+			} else {
+				username = fmt.Sprintf("@%s", escape(s.UserName))
+			}
+			expireText := fmt.Sprintf("Голосование истекло — необходимое количество голосов не набрано\\. %s", username)
+			if s.TargetMessageID != 0 {
+				msgLink := fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatID), s.TargetMessageID)
+				expireText = fmt.Sprintf("%s\n%s", expireText, msgLink)
+			}
+			myBot.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID:             chatID,
+				Text:               expireText,
+				ParseMode:          models.ParseModeMarkdown,
+				LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: bot.True()},
+			})
+			delete(chatSession, msgID)
+		}
+		if len(chatSession) == 0 {
+			delete(sessions, chatID)
+		}
+	}
+}
+
 func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		// jcart, _ := json.MarshalIndent(update, "", "\t")
@@ -288,6 +339,15 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 				userID = update.Message.SenderChat.ID
 				userName = update.Message.SenderChat.Username
 				altUserName = update.Message.SenderChat.Title
+			}
+
+			if update.Message.PinnedMessage != nil && userID == b.ID() {
+				b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+					ChatID:    update.Message.Chat.ID,
+					MessageID: update.Message.ID,
+				})
+				next(ctx, b, update)
+				return
 			}
 
 			storedText := update.Message.Text
@@ -453,7 +513,15 @@ func makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 	}
 	banInfo.Voters = map[int64]int8{}
 	banInfo.VoteMessageID = int64(responseMessage.ID)
+	banInfo.CreatedAt = time.Now()
 	chatSessions[int64(responseMessage.ID)] = banInfo
+
+	b.PinChatMessage(ctx, &bot.PinChatMessageParams{
+		ChatID:              banInfo.ChatID,
+		MessageID:           responseMessage.ID,
+		DisableNotification: true,
+	})
+
 	return true
 }
 

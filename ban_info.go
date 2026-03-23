@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -30,6 +31,7 @@ type BanInfo struct {
 	BanMessage       string
 	Voters           map[int64]int8
 	Type             uint8
+	CreatedAt        time.Time
 }
 
 const (
