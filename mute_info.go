@@ -220,6 +220,8 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		if notifyErr != nil {
 			log.Printf("[muteUser] chat notification failed: chatID=%d: %v", s.ChatID, notifyErr)
 		}
+
+		go updateUserFragTag(ctx, b, s.ChatID, s.OwnerID)
 	}
 
 }

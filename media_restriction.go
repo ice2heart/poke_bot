@@ -215,6 +215,8 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			}
 		}
 		b.SendMessage(ctx, params)
+
+		go updateUserFragTag(ctx, b, s.ChatID, s.OwnerID)
 	}
 
 }

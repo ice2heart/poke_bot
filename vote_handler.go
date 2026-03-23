@@ -23,9 +23,6 @@ type voteHandlerConfig struct {
 
 	// checkRecentCache guards against duplicate bans within the TTL window.
 	checkRecentCache bool
-
-	// trackVoteCount increments the requester's vote reputation counter.
-	trackVoteCount bool
 }
 
 func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
@@ -55,8 +52,6 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 
 		log.Printf("[%sHandler] new /%s from userID=%d in chatID=%d: %q",
 			cfg.command, cfg.command, update.Message.From.ID, chatId, update.Message.Text)
-
-		voteCount := 0
 
 		for _, v := range update.Message.Entities {
 			log.Printf("[%sHandler] entity type=%v text=%q in chatID=%d",
@@ -144,11 +139,6 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 			if !makeVoteMessage(ctx, banInfo, b) {
 				continue
 			}
-			voteCount++
-		}
-
-		if cfg.trackVoteCount {
-			userMakeVote(ctx, senderId, voteCount)
 		}
 	}
 }
@@ -166,7 +156,6 @@ var banHandler = makeVoteHandler(voteHandlerConfig{
 		return getBanInfoByUserIDNoDB(chatID, userInfo.UserId, userInfo.Username), nil
 	},
 	checkRecentCache: true,
-	trackVoteCount:   true,
 })
 
 var muteHandler = makeVoteHandler(voteHandlerConfig{

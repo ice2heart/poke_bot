@@ -36,7 +36,7 @@ var (
 	myID      string
 	linkRegex *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+))`)
 
-sessionsMux sync.Mutex
+	sessionsMux sync.Mutex
 	sessions    map[int64]map[int64]*BanInfo = make(map[int64]map[int64]*BanInfo)
 
 	settingsMux sync.Mutex
@@ -80,7 +80,6 @@ func ticker(ctx context.Context, delaySeconds int64, arg func(context.Context)) 
 		}
 	}
 }
-
 
 func main() {
 	var err error

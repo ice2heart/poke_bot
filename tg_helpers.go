@@ -359,6 +359,24 @@ func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, me
 	return true
 }
 
+func updateUserFragTag(ctx context.Context, b *bot.Bot, chatID int64, ownerID int64) {
+	userMakeVote(ctx, ownerID, 1)
+	user, err := getUser(ctx, ownerID)
+	if err != nil {
+		log.Printf("[updateUserFragTag] getUser failed for userID=%d: %v", ownerID, err)
+		return
+	}
+	title := fmt.Sprintf("frags: %d", user.VoteCounter)
+	_, err = b.SetChatMemberTag(ctx, &bot.SetChatMemberTagParams{
+		ChatID: chatID,
+		UserID: ownerID,
+		Tag:    title,
+	})
+	if err != nil {
+		log.Printf("[updateUserFragTag] SetChatMemberTag failed: userID=%d chatID=%d: %v", ownerID, chatID, err)
+	}
+}
+
 func (user *UserRecord) toClickableUsername() (username string) {
 	if len(user.Username) == 0 {
 		username = fmt.Sprintf("[%s](tg://user?id=%d)", strings.TrimSpace(escape(user.AltUsername)), user.Uid)

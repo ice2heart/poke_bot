@@ -279,4 +279,8 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			log.Printf("[banUser] can't send report to recipientID=%d: %v", v, err)
 		}
 	}
+
+	if result {
+		go updateUserFragTag(ctx, b, s.ChatID, s.OwnerID)
+	}
 }
