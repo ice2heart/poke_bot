@@ -99,6 +99,8 @@ func getMuteInfo(ctx context.Context, chatID int64, messageID int64) (banInfo *B
 }
 
 func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
+	log.Printf("[muteUser] start: userID=%d chatID=%d targetMessageID=%d", s.UserID, s.ChatID, s.TargetMessageID)
+
 	user, err := getUser(ctx, s.UserID)
 	var userRecord UserRecord
 	var banUsertag string
@@ -110,6 +112,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
 	}
 
+	log.Printf("[muteUser] restricting: userID=%d chatID=%d duration=%d days", s.UserID, s.ChatID, getMuteDurationInDays(userRecord))
 	result, err := b.RestrictChatMember(ctx, &bot.RestrictChatMemberParams{
 		ChatID:    s.ChatID,
 		UserID:    s.UserID,
@@ -121,6 +124,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		},
 		UseIndependentChatPermissions: false,
 	})
+	log.Printf("[muteUser] RestrictChatMember result=%v err=%v", result, err)
 	if err != nil {
 		log.Printf("[muteUser] RestrictChatMember failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 	}
@@ -153,7 +157,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		ownerInfo = fmt.Sprintf("Инициатор голосования: %s", maker.toClickableUsername())
 	}
 
-	chatName := getChatNameFromSettings(s.ChatID)
+	chatName := escape(getChatNameFromSettings(s.ChatID))
 
 	report := fmt.Sprintf("%s\n%s %s\n%s", chatName, resultText, banUsertag, ownerInfo)
 
@@ -177,7 +181,6 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
 	}
 	// log.Println(report)
-	report = strings.ReplaceAll(report, "-", "\\-")
 
 	pushBanLog(ctx, s)
 	disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
@@ -201,15 +204,22 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 
 	if result {
 		// do not notify if you failed
-		b.SendMessage(ctx, &bot.SendMessageParams{
+		params := &bot.SendMessageParams{
 			ChatID:    s.ChatID,
-			Text:      fmt.Sprintf("Вам выдан мут на %s. Надеемся на понимание.", getMuteDurationText(userRecord)),
+			Text:      escape(fmt.Sprintf("Вам выдан мут на %s. Надеемся на понимание.", getMuteDurationText(userRecord))),
 			ParseMode: models.ParseModeMarkdown,
-			ReplyParameters: &models.ReplyParameters{
+		}
+		if s.TargetMessageID != 0 {
+			params.ReplyParameters = &models.ReplyParameters{
 				ChatID:    s.ChatID,
 				MessageID: int(s.TargetMessageID),
-			},
-		})
+			}
+		}
+		log.Printf("[muteUser] sending chat notification: chatID=%d targetMessageID=%d", s.ChatID, s.TargetMessageID)
+		_, notifyErr := b.SendMessage(ctx, params)
+		if notifyErr != nil {
+			log.Printf("[muteUser] chat notification failed: chatID=%d: %v", s.ChatID, notifyErr)
+		}
 	}
 
 }

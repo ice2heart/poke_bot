@@ -92,7 +92,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 					banInfo, err = cfg.usernameFallback(ctx, chatId, username)
 					if err != nil {
 						systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
-							fmt.Sprintf("Пользователь @%v не найден", username), true)
+							escape(fmt.Sprintf("Пользователь @%v не найден", username)), true)
 						continue
 					}
 				}
@@ -110,7 +110,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 					banInfo, err = cfg.getByMessage(ctx, chatId, chatLink.TargetMessageID)
 					if err != nil {
 						systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
-							fmt.Sprintf("Сообщение не найдено. Используйте альтернативный метод: /%s @username", cfg.command), true)
+							escape(fmt.Sprintf("Сообщение не найдено. Используйте альтернативный метод: /%s @username", cfg.command)), true)
 						continue
 					}
 					banInfo.TargetMessageID = chatLink.TargetMessageID

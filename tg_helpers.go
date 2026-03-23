@@ -14,7 +14,14 @@ import (
 
 var (
 	publicGroupRX = regexp.MustCompile(`^-100`)
+	mdRegex       = regexp.MustCompile(`(['_~>#!=\-])`)
 )
+
+func escape(line string) string {
+	first_step := regexp.QuoteMeta(line)
+	second_step := strings.ReplaceAll(first_step, "`", "\\`")
+	return mdRegex.ReplaceAllString(second_step, "\\$1")
+}
 
 type Chat struct {
 	ChatID   int64

@@ -36,9 +36,7 @@ var (
 	myID      string
 	linkRegex *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+))`)
 
-	mdRegex *regexp.Regexp = regexp.MustCompile(`(['_~>#!=\-])`)
-
-	sessionsMux sync.Mutex
+sessionsMux sync.Mutex
 	sessions    map[int64]map[int64]*BanInfo = make(map[int64]map[int64]*BanInfo)
 
 	settingsMux sync.Mutex
@@ -83,11 +81,6 @@ func ticker(ctx context.Context, delaySeconds int64, arg func(context.Context)) 
 	}
 }
 
-func escape(line string) string {
-	first_step := regexp.QuoteMeta(line)
-	second_step := strings.ReplaceAll(first_step, "`", "\\`")
-	return mdRegex.ReplaceAllString(second_step, "\\$1")
-}
 
 func main() {
 	var err error
@@ -140,6 +133,7 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+	log.Println("beforemonga")
 
 	initDb(ctx, mongoAddr, dbName)
 	settings = readChatsSettings(ctx)
@@ -536,6 +530,8 @@ func parseVoteSession(ctx context.Context, b *bot.Bot, update *models.Update) (s
 // Caller must hold sessionsMux.
 func handleVote(ctx context.Context, b *bot.Bot, update *models.Update, s *BanInfo, chatSession map[int64]*BanInfo, superPoke int) string {
 	isDownvote := update.CallbackQuery.Data == "button_downvote"
+	log.Printf("[handleVote] userID=%d chatID=%d type=%d superPoke=%d isDownvote=%v voters=%d score=%d",
+		update.CallbackQuery.From.ID, s.ChatID, s.Type, superPoke, isDownvote, len(s.Voters), s.Score)
 
 	voteResult := 1
 	answer := ANSWER_BAN

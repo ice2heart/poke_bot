@@ -156,7 +156,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		ownerInfo = fmt.Sprintf("Инициатор голосования: %s", maker.toClickableUsername())
 	}
 
-	chatName := getChatNameFromSettings(s.ChatID)
+	chatName := escape(getChatNameFromSettings(s.ChatID))
 
 	report := fmt.Sprintf("%s\n%s %s\n%s", chatName, resultText, banUsertag, ownerInfo)
 
@@ -179,7 +179,6 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		escapedText = firstN(escapedText, 3500)
 		report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
 	}
-	report = strings.ReplaceAll(report, "-", "\\-")
 	// log.Println(report)
 
 	pushBanLog(ctx, s)
@@ -204,15 +203,18 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 
 	if result {
 		// do not notify if you failed
-		b.SendMessage(ctx, &bot.SendMessageParams{
+		params := &bot.SendMessageParams{
 			ChatID:    s.ChatID,
-			Text:      fmt.Sprintf("Вам запрещена отправка картинок и стикеров на %s. Надеемся на понимание.", getTextOnlyDurationText(userRecord)),
+			Text:      escape(fmt.Sprintf("Вам запрещена отправка картинок и стикеров на %s. Надеемся на понимание.", getTextOnlyDurationText(userRecord))),
 			ParseMode: models.ParseModeMarkdown,
-			ReplyParameters: &models.ReplyParameters{
+		}
+		if s.TargetMessageID != 0 {
+			params.ReplyParameters = &models.ReplyParameters{
 				ChatID:    s.ChatID,
 				MessageID: int(s.TargetMessageID),
-			},
-		})
+			}
+		}
+		b.SendMessage(ctx, params)
 	}
 
 }
