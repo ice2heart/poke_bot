@@ -469,37 +469,54 @@ func onPauseMessage(ctx context.Context, b *bot.Bot, message *models.Message) {
 }
 
 func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
-	var answer_message *string
-	answer_message = &ANSWER_SOMETHING_WRONG
+	answer := ANSWER_SOMETHING_WRONG
 	defer func() {
 		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 			CallbackQueryID: update.CallbackQuery.ID,
 			ShowAlert:       false,
-			Text:            *answer_message,
+			Text:            answer,
 		})
 	}()
+
 	if update.CallbackQuery == nil || update.CallbackQuery.Message.Message == nil {
-		// already deleted message
 		return
 	}
-	log.Printf("[voteCallbackHandler] vote=%q messageID=%d chatID=%d userID=%d", update.CallbackQuery.Data, update.CallbackQuery.Message.Message.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.From.ID)
 
 	sessionsMux.Lock()
 	defer sessionsMux.Unlock()
 
-	chatSession, ok := sessions[update.CallbackQuery.Message.Message.Chat.ID]
+	s, chatSession, superPoke, ok := parseVoteSession(ctx, b, update)
 	if !ok {
-		log.Printf("[voteCallbackHandler] no active session for chatID=%d", update.CallbackQuery.Message.Message.Chat.ID)
-		return
-	}
-	s, ok := chatSession[int64(update.CallbackQuery.Message.Message.ID)]
-	if !ok {
-		log.Printf("[voteCallbackHandler] no session for messageID=%d in chatID=%d, deleting stale vote message", update.CallbackQuery.Message.Message.ID, update.CallbackQuery.Message.Message.Chat.ID)
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: update.CallbackQuery.Message.Message.Chat.ID, MessageID: update.CallbackQuery.Message.Message.ID})
 		return
 	}
 
-	superPoke := 0
+	if s.OwnerID == update.CallbackQuery.From.ID && superPoke == 0 {
+		log.Printf("[voteCallbackHandler] userID=%d attempted to vote on their own poll in chatID=%d", update.CallbackQuery.From.ID, s.ChatID)
+		answer = ANSWER_OWN
+		return
+	}
+
+	answer = handleVote(ctx, b, update, s, chatSession, superPoke)
+}
+
+// parseVoteSession looks up the active BanInfo session for the incoming callback.
+// Caller must hold sessionsMux.
+func parseVoteSession(ctx context.Context, b *bot.Bot, update *models.Update) (s *BanInfo, chatSession map[int64]*BanInfo, superPoke int, ok bool) {
+	msg := update.CallbackQuery.Message.Message
+	log.Printf("[voteCallbackHandler] vote=%q messageID=%d chatID=%d userID=%d",
+		update.CallbackQuery.Data, msg.ID, msg.Chat.ID, update.CallbackQuery.From.ID)
+
+	chatSession, ok = sessions[msg.Chat.ID]
+	if !ok {
+		log.Printf("[voteCallbackHandler] no active session for chatID=%d", msg.Chat.ID)
+		return nil, nil, 0, false
+	}
+	s, ok = chatSession[int64(msg.ID)]
+	if !ok {
+		log.Printf("[voteCallbackHandler] no session for messageID=%d in chatID=%d, deleting stale vote message", msg.ID, msg.Chat.ID)
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: msg.Chat.ID, MessageID: msg.ID})
+		return nil, nil, 0, false
+	}
 
 	adminsMux.Lock()
 	isAdmin, isInAdminList := checkAdmins(ctx, b, s.ChatID)[update.CallbackQuery.From.ID]
@@ -511,84 +528,68 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 	}
 	adminsMux.Unlock()
 
-	if s.OwnerID == update.CallbackQuery.From.ID && superPoke == 0 {
-		log.Printf("[voteCallbackHandler] userID=%d attempted to vote on their own poll in chatID=%d", update.CallbackQuery.From.ID, s.ChatID)
-		answer_message = &ANSWER_OWN
-		return
-	}
+	return s, chatSession, superPoke, true
+}
+
+// handleVote records the vote, tallies the result, and dispatches the outcome.
+// Returns the answer message to send back to the voter.
+// Caller must hold sessionsMux.
+func handleVote(ctx context.Context, b *bot.Bot, update *models.Update, s *BanInfo, chatSession map[int64]*BanInfo, superPoke int) string {
+	isDownvote := update.CallbackQuery.Data == "button_downvote"
+
 	voteResult := 1
-	if s.Type == BAN {
-		answer_message = &ANSWER_BAN
-	} else {
-		answer_message = &ANSWER_MUTE
+	answer := ANSWER_BAN
+	if s.Type != BAN {
+		answer = ANSWER_MUTE
 	}
-
-	if update.CallbackQuery.Data == "button_downvote" {
-		if s.Type == BAN {
-			answer_message = &ANSWER_NOTBAN
-		} else {
-			answer_message = &ANSWER_NOTMUTE
-		}
-
+	if isDownvote {
 		voteResult = -1
+		answer = ANSWER_NOTBAN
+		if s.Type != BAN {
+			answer = ANSWER_NOTMUTE
+		}
 	}
+
 	s.Voters[update.CallbackQuery.From.ID] = int8(voteResult)
 
-	upvoteCount := 0
-	downvoteCount := 0
+	upvotes, downvotes := 0, 0
 	for _, v := range s.Voters {
 		if v == 1 {
-			upvoteCount = upvoteCount + 1
+			upvotes++
 		} else {
-			downvoteCount = downvoteCount + 1
+			downvotes++
 		}
 	}
 
-	if superPoke == 1 || (upvoteCount-downvoteCount >= int(s.Score)) {
-		//move to separate function
+	msgID := int64(update.CallbackQuery.Message.Message.ID)
+
+	if superPoke == 1 || upvotes-downvotes >= int(s.Score) {
 		switch s.Type {
 		case BAN:
-			{
-				// TODO: move to separate goroutine
-				banUser(ctx, b, s)
-			}
+			banUser(ctx, b, s)
 		case MUTE:
-			{
-				muteUser(ctx, b, s)
-			}
+			muteUser(ctx, b, s)
 		case TEXT_ONLY:
-			{
-				textOnlyUser(ctx, b, s)
-			}
+			textOnlyUser(ctx, b, s)
 		}
-
-		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
-		return
+		delete(chatSession, msgID)
+		return answer
 	}
-	// Downvoted
-	if superPoke == -1 || (downvoteCount-upvoteCount >= int(MID_SCORE)) {
-		//Delete the vote message
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    s.ChatID,
-			MessageID: int(s.VoteMessageID),
-		})
-		// Delete the vote request
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    s.ChatID,
-			MessageID: int(s.RequestMessageID),
-		})
-		delete(chatSession, int64(update.CallbackQuery.Message.Message.ID))
-		// ToDo: prepare report
-		// delete user and user's messages
-		return
+
+	if superPoke == -1 || downvotes-upvotes >= int(MID_SCORE) {
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.VoteMessageID)})
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.RequestMessageID)})
+		delete(chatSession, msgID)
+		return answer
 	}
 
 	b.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
 		ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
 		MessageID:   update.CallbackQuery.Message.Message.ID,
-		ReplyMarkup: getVoteButtons(upvoteCount, downvoteCount, s.Type),
+		ReplyMarkup: getVoteButtons(upvotes, downvotes, s.Type),
 	})
 
+	return answer
 }
 
 func checkAdmins(ctx context.Context, b *bot.Bot, chatID int64) (chatAdmins map[int64]bool) {
@@ -650,120 +651,6 @@ func pauseHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 }
 
 func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
-
-}
-
-func banHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
-	// log.Printf("Whole message %v", update.Message.)
-	pokeConter := 0
-
-	chatId := update.Message.Chat.ID
-
-	settingsMux.Lock()
-	chatSettings := getChatSettings(ctx, chatId)
-	senderId := update.Message.From.ID
-	if update.Message.SenderChat != nil {
-		senderId = update.Message.SenderChat.ID
-	}
-	if chatSettings.Pause {
-		settingsMux.Unlock()
-		onPauseMessage(ctx, b, update.Message)
-		return
-	}
-	settingsMux.Unlock()
-
-	if len(update.Message.Entities) == 1 && update.Message.Entities[0].Type != models.MessageEntityTypeBotCommand {
-		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, escape(fmt.Sprintf("Укажите ссылку на сообщение или пользователя.\nПримеры:\n@%s https://t.me/c/1657123097/2854347\n/ban https://t.me/c/1657123097/2854347\n/ban @username", myID)))
-	}
-
-	for _, v := range update.Message.Entities {
-		log.Printf("[banHandler] entity type=%v text=%q in chatID=%d", v.Type, update.Message.Text[v.Offset:v.Offset+v.Length], chatId)
-		var err error
-		var banInfo *BanInfo
-		if v.Type == models.MessageEntityTypeTextMention {
-			log.Printf("[banHandler] text mention: userID=%d firstName=%q in chatID=%d", v.User.ID, v.User.FirstName, chatId)
-			banInfo, err = getBanInfoByUserID(ctx, chatId, v.User.ID)
-			if err != nil {
-				log.Printf("[banHandler] getBanInfoByUserID failed for userID=%d in chatID=%d: %v", v.User.ID, chatId, err)
-				continue
-			}
-		}
-		if v.Type == models.MessageEntityTypeMention {
-			username := update.Message.Text[v.Offset+1 : v.Offset+v.Length]
-			log.Printf("[banHandler] processing mention @%s in chatID=%d", username, chatId)
-			if username == myID {
-				continue
-			}
-			banInfo, err = getBanInfoByUsername(ctx, chatId, username)
-			if err != nil {
-				log.Printf("[banHandler] getBanInfoByUsername failed for username=%q in chatID=%d: %v", username, chatId, err)
-				userInfo, err := client.GetUserByUsername(ctx, username)
-				if err != nil {
-					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("Пользователь @%v не найден", username), true)
-					continue
-				}
-				//
-				banInfo = getBanInfoByUserIDNoDB(chatId, userInfo.UserId, userInfo.Username)
-			}
-		}
-		if v.Type == models.MessageEntityTypeURL {
-			log.Printf("[banHandler] processing URL entity in chatID=%d: %q", chatId, update.Message.Text[v.Offset:v.Offset+v.Length])
-			rxResult := linkRegex.FindAllStringSubmatch(update.Message.Text[v.Offset:v.Offset+v.Length], -1)
-			for i := range rxResult {
-				if rxResult[i][1] == "" {
-					linkUsername := rxResult[i][2]
-					if linkUsername != update.Message.Chat.Username {
-						log.Printf("[banHandler] link chat username mismatch: got %q expected %q in chatID=%d", linkUsername, update.Message.Chat.Username, chatId)
-						continue
-					}
-				} else {
-					parsedID, _ := strconv.ParseInt("-100"+rxResult[i][2], 10, 64)
-					if chatId != parsedID {
-						log.Printf("[banHandler] link chatID mismatch: got %d expected %d", parsedID, chatId)
-						continue
-					}
-				}
-				pokeMessageID, err := strconv.ParseInt(rxResult[i][3], 10, 64)
-				if err != nil {
-					log.Printf("[banHandler] corrupted messageID %q in URL entity chatID=%d", rxResult[i][3], chatId)
-					continue
-				}
-				banInfo, err = getBanInfo(ctx, chatId, pokeMessageID)
-				if err != nil {
-					systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Сообщение не найдено. Используйте альтернативный метод: /ban @username", true)
-					continue
-				}
-				banInfo.TargetMessageID = pokeMessageID
-			}
-		}
-		if banInfo == nil {
-			continue
-		}
-		banInfo.OwnerID = senderId
-		// if used a chat alias should be saved proper ID
-		banInfo.RequestMessageID = int64(update.Message.ID)
-		if checkForDuplicates(ctx, chatId, banInfo.UserID, b, update) {
-			continue
-		}
-
-		sessionsMux.Lock()
-		cached := getCachedBanInfo(banInfo.ChatID, banInfo.UserID)
-		sessionsMux.Unlock()
-
-		if cached {
-			systemAnswerToMessage(ctx, b, chatId, update.Message.ID, "Пользователь уже был заблокирован недавно", true)
-			continue
-		}
-
-		log.Printf("[banHandler] starting ban vote: userID=%d chatID=%d requiredScore=%d", banInfo.UserID, chatId, banInfo.Score)
-		if !makeVoteMessage(ctx, banInfo, b) {
-			continue
-		}
-		pokeConter = pokeConter + 1
-
-	}
-
-	userMakeVote(ctx, senderId, pokeConter)
 
 }
 
