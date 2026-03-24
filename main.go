@@ -793,9 +793,9 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 				})
 				return
 			}
-			ok, err := unbanUser(ctx, b, data.ChatID, getInt(userIdRaw))
-			if err != nil {
-				log.Printf("[actionCallbackHandler] ACTION_UNBAN: unbanUser failed for chatID=%d: %v", data.ChatID, err)
+			userID := getInt(userIdRaw)
+			failUnban := func(msg string, args ...any) {
+				log.Printf(msg, args...)
 				b.SendMessage(ctx, &bot.SendMessageParams{
 					ChatID: update.CallbackQuery.From.ID,
 					Text:   "Не удалось разблокировать пользователя",
@@ -804,18 +804,29 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 						MessageID: update.CallbackQuery.Message.Message.ID,
 					},
 				})
-				return
+			}
+
+			ok, err := unbanUser(ctx, b, data.ChatID, userID)
+			if err != nil {
+				log.Printf("[actionCallbackHandler] ACTION_UNBAN: Bot API failed for chatID=%d userID=%d: %v, trying MTProto", data.ChatID, userID, err)
+				chatHash, hashErr := client.GetAccessHash(ctx, data.ChatID)
+				if hashErr != nil {
+					failUnban("[actionCallbackHandler] ACTION_UNBAN: GetAccessHash failed for chatID=%d: %v", data.ChatID, hashErr)
+					return
+				}
+				mtUser, userErr := client.GetUser(ctx, userID)
+				if userErr != nil {
+					failUnban("[actionCallbackHandler] ACTION_UNBAN: GetUser failed for userID=%d: %v", userID, userErr)
+					return
+				}
+				ok, err = client.UnbanUser(ctx, data.ChatID, chatHash, userID, mtUser.AccessHash)
+				if err != nil {
+					failUnban("[actionCallbackHandler] ACTION_UNBAN: MTProto UnbanUser failed for chatID=%d userID=%d: %v", data.ChatID, userID, err)
+					return
+				}
 			}
 			if !ok {
-				log.Printf("[actionCallbackHandler] ACTION_UNBAN: unban returned false for chatID=%d", data.ChatID)
-				b.SendMessage(ctx, &bot.SendMessageParams{
-					ChatID: update.CallbackQuery.From.ID,
-					Text:   "Не удалось разблокировать пользователя",
-					ReplyParameters: &models.ReplyParameters{
-						ChatID:    update.CallbackQuery.From.ID,
-						MessageID: update.CallbackQuery.Message.Message.ID,
-					},
-				})
+				failUnban("[actionCallbackHandler] ACTION_UNBAN: unban returned false for chatID=%d", data.ChatID)
 				return
 			}
 			b.SendMessage(ctx, &bot.SendMessageParams{

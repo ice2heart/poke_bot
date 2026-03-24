@@ -270,6 +270,22 @@ func (client *MTProtoHelper) GetPeerByUsername(ctx context.Context, username str
 
 }
 
+// UnbanUser removes all restrictions from a user in a channel.
+func (client *MTProtoHelper) UnbanUser(ctx context.Context, chatID int64, chatHash int64, userID int64, userHash int64) (bool, error) {
+	channel := &tg.InputChannel{ChannelID: -1000000000000 - chatID, AccessHash: chatHash}
+	peer := &tg.InputPeerUser{UserID: userID, AccessHash: userHash}
+
+	_, err := client.api.ChannelsEditBanned(ctx, &tg.ChannelsEditBannedRequest{
+		Channel:      channel,
+		Participant:  peer,
+		BannedRights: tg.ChatBannedRights{UntilDate: 0},
+	})
+	if err != nil {
+		return false, fmt.Errorf("UnbanUser chatID=%d userID=%d: %w", chatID, userID, err)
+	}
+	return true, nil
+}
+
 func (client *MTProtoHelper) BanUser(ctx context.Context, chatID int64, chatHash int64, username string) (result bool, err error) {
 
 	channel := &tg.InputChannel{ChannelID: -1000000000000 - chatID, AccessHash: chatHash}
