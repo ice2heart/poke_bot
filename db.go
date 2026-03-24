@@ -82,6 +82,52 @@ func initDb(ctx context.Context, connectionLine string, dbName string) {
 	banLogs = dataBase.Collection("ban_log")
 	chatMessages = dataBase.Collection("messages")
 	chatSettingsCollection = dataBase.Collection("settings")
+	ensureIndexes(ctx)
+}
+
+func ensureIndexes(ctx context.Context) {
+	t := true
+
+	// users: uid (unique) — primary lookup key
+	if _, err := usersCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "uid", Value: 1}},
+		Options: &options.IndexOptions{Unique: &t},
+	}); err != nil {
+		log.Printf("[ensureIndexes] users.uid index: %v", err)
+	}
+
+	// users: username (sparse) — lookup by username
+	sparse := true
+	if _, err := usersCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "username", Value: 1}},
+		Options: &options.IndexOptions{Sparse: &sparse},
+	}); err != nil {
+		log.Printf("[ensureIndexes] users.username index: %v", err)
+	}
+
+	// messages: {chatid, messageid} — getMessageInfo / updateMessage
+	if _, err := chatMessages.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "chatid", Value: 1}, {Key: "messageid", Value: 1}},
+	}); err != nil {
+		log.Printf("[ensureIndexes] messages.{chatid,messageid} index: %v", err)
+	}
+
+	// messages: {chatid, userid, date} — getUserLastNthMessages (filter + sort)
+	if _, err := chatMessages.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "chatid", Value: 1}, {Key: "userid", Value: 1}, {Key: "date", Value: -1}},
+	}); err != nil {
+		log.Printf("[ensureIndexes] messages.{chatid,userid,date} index: %v", err)
+	}
+
+	// settings: chatid (unique) — one settings doc per chat
+	if _, err := chatSettingsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "chatid", Value: 1}},
+		Options: &options.IndexOptions{Unique: &t},
+	}); err != nil {
+		log.Printf("[ensureIndexes] settings.chatid index: %v", err)
+	}
+
+	log.Printf("[ensureIndexes] done")
 }
 
 func userPlusOneMessage(ctx context.Context, uID int64, username string, altname string) {
