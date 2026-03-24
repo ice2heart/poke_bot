@@ -42,7 +42,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 		}
 		settingsMux.Unlock()
 
-		if len(update.Message.Entities) == 1 && update.Message.Entities[0].Type != models.MessageEntityTypeBotCommand {
+		if len(update.Message.Entities) == 0 || (len(update.Message.Entities) == 1 && update.Message.Entities[0].Type == models.MessageEntityTypeBotCommand) {
 			systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
 				escape(fmt.Sprintf(
 					"Укажите ссылку на сообщение или пользователя.\nПримеры:\n/%s https://t.me/c/1657123097/2854347\n/%s @username",

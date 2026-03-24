@@ -130,7 +130,7 @@ func main() {
 		log.Panic("[main] BOT_APP_HASH env var is required")
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	log.Println("beforemonga")
 
@@ -193,6 +193,12 @@ func main() {
 	// each 30 minutes expire votes older than 1.5 days
 	go ticker(ctx, 1800, expireOldVotes)
 	myBot.Start(ctx)
+
+	// Graceful shutdown: expire all remaining active votes.
+	log.Println("[main] shutting down, expiring all active votes")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+	expireAllVotes(shutdownCtx)
 }
 
 func botRemovedFromChat(ctx context.Context, chatID int64) {
@@ -291,15 +297,49 @@ func expireOldVotes(ctx context.Context) {
 				username = fmt.Sprintf("@%s", escape(s.UserName))
 			}
 			expireText := fmt.Sprintf("Голосование истекло — необходимое количество голосов не набрано\\. %s", username)
-			if s.TargetMessageID != 0 {
-				msgLink := fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatID), s.TargetMessageID)
-				expireText = fmt.Sprintf("%s\n%s", expireText, msgLink)
-			}
 			myBot.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID:             chatID,
-				Text:               expireText,
-				ParseMode:          models.ParseModeMarkdown,
-				LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: bot.True()},
+				ChatID:    chatID,
+				Text:      expireText,
+				ParseMode: models.ParseModeMarkdown,
+			})
+			delete(chatSession, msgID)
+		}
+		if len(chatSession) == 0 {
+			delete(sessions, chatID)
+		}
+	}
+}
+
+func expireAllVotes(ctx context.Context) {
+	sessionsMux.Lock()
+	defer sessionsMux.Unlock()
+
+	for chatID, chatSession := range sessions {
+		for msgID, s := range chatSession {
+			log.Printf("[expireAllVotes] expiring vote messageID=%d chatID=%d userID=%d", msgID, chatID, s.UserID)
+			myBot.UnpinChatMessage(ctx, &bot.UnpinChatMessageParams{
+				ChatID:    chatID,
+				MessageID: int(msgID),
+			})
+			myBot.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    chatID,
+				MessageID: int(msgID),
+			})
+			myBot.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    chatID,
+				MessageID: int(s.RequestMessageID),
+			})
+			var username string
+			if s.UserName == "" {
+				username = fmt.Sprintf("[%s](tg://user?id=%d)", strings.TrimSpace(escape(s.ProfileName)), s.UserID)
+			} else {
+				username = fmt.Sprintf("@%s", escape(s.UserName))
+			}
+			expireText := fmt.Sprintf("Голосование истекло — необходимое количество голосов не набрано\\. %s", username)
+			myBot.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID:    chatID,
+				Text:      expireText,
+				ParseMode: models.ParseModeMarkdown,
 			})
 			delete(chatSession, msgID)
 		}
