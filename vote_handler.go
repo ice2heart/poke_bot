@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -93,9 +94,22 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 				}
 
 			case models.MessageEntityTypeURL:
-				log.Printf("[%sHandler] processing URL entity in chatID=%d: %q",
-					cfg.command, chatId, update.Message.Text[v.Offset:v.Offset+v.Length])
-				chatLinks := parseChatLink(update.Message.Text[v.Offset:v.Offset+v.Length], chatId, update.Message.Chat.Username)
+				rawURL := update.Message.Text[v.Offset : v.Offset+v.Length]
+				log.Printf("[%sHandler] processing URL entity in chatID=%d: %q", cfg.command, chatId, rawURL)
+				if m := tgUserLinkRegex.FindStringSubmatch(rawURL); m != nil {
+					userID, err := strconv.ParseInt(m[1], 10, 64)
+					if err != nil {
+						log.Printf("[%sHandler] failed to parse userID from tg://user link in chatID=%d: %v", cfg.command, chatId, err)
+						continue
+					}
+					log.Printf("[%sHandler] tg://user link: userID=%d in chatID=%d", cfg.command, userID, chatId)
+					banInfo, err = cfg.getByUserID(ctx, chatId, userID)
+					if err != nil {
+						log.Printf("[%sHandler] getByUserID failed for userID=%d in chatID=%d: %v", cfg.command, userID, chatId, err)
+					}
+					break
+				}
+				chatLinks := parseChatLink(rawURL, chatId, update.Message.Chat.Username)
 				for _, chatLink := range chatLinks {
 					if chatLink.err != nil {
 						log.Printf("[%sHandler] failed to parse chat link in chatID=%d: %v",

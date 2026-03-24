@@ -33,8 +33,9 @@ var (
 	myBot  *bot.Bot
 	client *mtproto.MTProtoHelper
 
-	myID      string
-	linkRegex *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+))`)
+	myID            string
+	linkRegex       *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+))`)
+	tgUserLinkRegex *regexp.Regexp = regexp.MustCompile(`^tg://user\?id=(\d+)$`)
 
 	sessionsMux sync.Mutex
 	sessions    map[int64]map[int64]*BanInfo = make(map[int64]map[int64]*BanInfo)
