@@ -629,6 +629,11 @@ func parseVoteSession(ctx context.Context, b *bot.Bot, update *models.Update) (s
 	}
 	adminsMux.Unlock()
 
+	// The vote owner cancelling their own vote counts as a super downvote.
+	if superPoke == 0 && s.OwnerID == update.CallbackQuery.From.ID && update.CallbackQuery.Data == "button_downvote" {
+		superPoke = -1
+	}
+
 	return s, chatSession, superPoke, true
 }
 

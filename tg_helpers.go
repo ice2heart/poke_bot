@@ -361,6 +361,17 @@ func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, me
 
 func updateUserFragTag(ctx context.Context, b *bot.Bot, chatID int64, ownerID int64) {
 	userMakeVote(ctx, ownerID, 1)
+
+	adminsMux.Lock()
+	chatAdmins := checkAdmins(ctx, b, chatID)
+	_, isAdmin := chatAdmins[ownerID]
+	adminsMux.Unlock()
+
+	if !isAdmin {
+		log.Printf("[updateUserFragTag] skipping tag update: userID=%d is not an admin in chatID=%d", ownerID, chatID)
+		return
+	}
+
 	user, err := getUser(ctx, ownerID)
 	if err != nil {
 		log.Printf("[updateUserFragTag] getUser failed for userID=%d: %v", ownerID, err)
