@@ -71,29 +71,7 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 		msgLink, editDelaySec, escape(updatedText),
 	)
 
-	sent, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:             msg.Chat.ID,
-		Text:               text,
-		ParseMode:          models.ParseModeMarkdown,
-		LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: bot.True()},
-	})
-	if err != nil {
-		log.Printf("[detector] SendMessage failed for chatID=%d messageID=%d: %v",
-			msg.Chat.ID, msg.ID, err)
-		return
-	}
-
-	sentID := sent.ID
-	chatID := msg.Chat.ID
-	go delay(ctx, 5*60, func() {
-		if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    chatID,
-			MessageID: sentID,
-		}); err != nil {
-			log.Printf("[detector] can't delete warning messageID=%d in chatID=%d: %v",
-				sentID, chatID, err)
-		}
-	})
+	systemMessage(ctx, b, msg.Chat.ID, text, 5*60)
 }
 
 // detectorMiddleware feeds all message and edit updates into the detection goroutine.
