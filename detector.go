@@ -59,11 +59,16 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 	log.Printf("[detector] suspected spam edit: messageID=%d chatID=%d editDelaySec=%d",
 		msg.ID, msg.Chat.ID, editDelaySec)
 
+	updatedText := msg.Text
+	if updatedText == "" {
+		updatedText = msg.Caption
+	}
+
 	msgLink := fmt.Sprintf("tg://privatepost?channel=%s&post=%d",
 		makePublicGroupString(msg.Chat.ID), msg.ID)
 	text := fmt.Sprintf(
-		"Подозрительная активность: [сообщение](%s) отредактировано с добавлением ссылки спустя %d с",
-		msgLink, editDelaySec,
+		"Подозрительная активность: [сообщение](%s) отредактировано с добавлением ссылки спустя %d с\n\n%s",
+		msgLink, editDelaySec, escape(updatedText),
 	)
 
 	sent, err := b.SendMessage(ctx, &bot.SendMessageParams{
