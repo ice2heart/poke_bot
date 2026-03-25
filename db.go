@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -355,6 +356,28 @@ func getUserLastNthMessages(ctx context.Context, userID int64, chatID int64, amo
 	err = cursor.All(ctx, &ret)
 	if err != nil {
 		log.Printf("[getUserLastNthMessages] cursor.All failed for userID=%d chatID=%d: %v", userID, chatID, err)
+		return nil, err
+	}
+	return ret, nil
+}
+
+// getUserLastDaysMessages returns all messages for the user in the given chat
+// that were stored within the last [days] days.
+func getUserLastDaysMessages(ctx context.Context, userID int64, chatID int64, days int) (ret []ChatMessage, err error) {
+	since := uint64(time.Now().AddDate(0, 0, -days).Unix())
+	filter := bson.D{
+		{Key: "chatid", Value: chatID},
+		{Key: "userid", Value: userID},
+		{Key: "date", Value: bson.D{{Key: "$gte", Value: since}}},
+	}
+	cursor, err := chatMessages.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "date", Value: -1}}))
+	if err != nil {
+		log.Printf("[getUserLastDaysMessages] Find failed for userID=%d chatID=%d days=%d: %v", userID, chatID, days, err)
+		return nil, err
+	}
+	err = cursor.All(ctx, &ret)
+	if err != nil {
+		log.Printf("[getUserLastDaysMessages] cursor.All failed for userID=%d chatID=%d: %v", userID, chatID, err)
 		return nil, err
 	}
 	return ret, nil

@@ -147,7 +147,7 @@ func getBanInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInf
 		return nil, err
 	}
 	if len(messages) == 0 {
-		banInfo.LastMessage = "Not found"
+		banInfo.LastMessage = "Сообщение не найдено"
 	} else {
 		banInfo.LastMessage = messages[0].Text
 		banInfo.TargetMessageID = messages[0].MessageID
@@ -168,11 +168,11 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 	if len(s.UserName) != 0 {
 		banUsertag = fmt.Sprintf("@%s", escape(s.UserName))
 	} else {
-		helper_user, err := getUser(ctx, s.UserID)
+		helperUser, err := getUser(ctx, s.UserID)
 		if err != nil {
 			banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
 		} else {
-			banUsertag = helper_user.toClickableUsername()
+			banUsertag = helperUser.toClickableUsername()
 		}
 	}
 
@@ -224,7 +224,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 
 	report := fmt.Sprintf("%s\n%s %s\n%s", chatName, resultText, banUsertag, ownerInfo)
 
-	userMessages, err := getUserLastNthMessages(ctx, s.UserID, s.ChatID, 20)
+	userMessages, err := getUserLastDaysMessages(ctx, s.UserID, s.ChatID, 2)
 	messageIDs := make([]int, len(userMessages))
 
 	if err == nil && len(userMessages) > 0 {
@@ -243,7 +243,6 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		escapedText = firstN(escapedText, 3500)
 		report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
 	}
-	// log.Println(report)
 	for _, v := range messageIDs {
 		_, err = b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    s.ChatID,
@@ -253,14 +252,6 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			log.Printf("[banUser] can't delete messageID=%d for userID=%d in chatID=%d: %v", v, s.UserID, s.ChatID, err)
 		}
 	}
-	// this is works like a shit
-	// _, err = b.DeleteMessages(ctx, &bot.DeleteMessagesParams{
-	// 	ChatID:     s.ChatID,
-	// 	MessageIDs: messageIDs,
-	// })
-	// if err != nil {
-	// 	log.Printf("Can't delete messages for chat %d, user %d. IDs: %v. Err: %v", s.ChatID, s.UserID, messageIDs, err)
-	// }
 	pushBanLog(ctx, s)
 	disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
 
