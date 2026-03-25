@@ -159,7 +159,7 @@ func main() {
 
 	opts := []bot.Option{
 		bot.WithDefaultHandler(handler),
-		bot.WithMiddlewares(logMessagesMiddleware),
+		bot.WithMiddlewares(logMessagesMiddleware, detectorMiddleware),
 		bot.WithCallbackQueryDataHandler("button", bot.MatchTypePrefix, voteCallbackHandler),
 	}
 
@@ -193,6 +193,8 @@ func main() {
 	go ticker(ctx, 43200, getChatAdmins)
 	// each 30 minutes expire votes older than 1.5 days
 	go ticker(ctx, 1800, expireOldVotes)
+	// spam edit detector
+	go startDetector(ctx, myBot)
 	myBot.Start(ctx)
 
 	// Graceful shutdown: expire all remaining active votes.
