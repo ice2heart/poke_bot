@@ -195,21 +195,24 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			log.Printf("[banUser] MTProto fallback ban failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 		}
 	}
-	//Delete the target
-	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+	if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 		ChatID:    s.ChatID,
 		MessageID: int(s.TargetMessageID),
-	})
-	//Delete the vote message
-	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+	}); err != nil {
+		log.Printf("[banUser] can't delete target messageID=%d in chatID=%d: %v", s.TargetMessageID, s.ChatID, err)
+	}
+	if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 		ChatID:    s.ChatID,
 		MessageID: int(s.VoteMessageID),
-	})
-	// Delete the vote request
-	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+	}); err != nil {
+		log.Printf("[banUser] can't delete vote messageID=%d in chatID=%d: %v", s.VoteMessageID, s.ChatID, err)
+	}
+	if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 		ChatID:    s.ChatID,
 		MessageID: int(s.RequestMessageID),
-	})
+	}); err != nil {
+		log.Printf("[banUser] can't delete request messageID=%d in chatID=%d: %v", s.RequestMessageID, s.ChatID, err)
+	}
 
 	resultText := "Заблокирован успешно"
 	if !result {
