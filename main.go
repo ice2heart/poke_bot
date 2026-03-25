@@ -279,6 +279,9 @@ func expireOldVotes(ctx context.Context) {
 				continue
 			}
 			log.Printf("[expireOldVotes] expiring vote messageID=%d chatID=%d userID=%d", msgID, chatID, s.UserID)
+			if s.cancelPin != nil {
+				s.cancelPin()
+			}
 			myBot.UnpinChatMessage(ctx, &bot.UnpinChatMessageParams{
 				ChatID:    chatID,
 				MessageID: int(msgID),
@@ -318,6 +321,9 @@ func expireAllVotes(ctx context.Context) {
 	for chatID, chatSession := range sessions {
 		for msgID, s := range chatSession {
 			log.Printf("[expireAllVotes] expiring vote messageID=%d chatID=%d userID=%d", msgID, chatID, s.UserID)
+			if s.cancelPin != nil {
+				s.cancelPin()
+			}
 			myBot.UnpinChatMessage(ctx, &bot.UnpinChatMessageParams{
 				ChatID:    chatID,
 				MessageID: int(msgID),
@@ -557,10 +563,16 @@ func makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 	banInfo.CreatedAt = time.Now()
 	chatSessions[int64(responseMessage.ID)] = banInfo
 
-	b.PinChatMessage(ctx, &bot.PinChatMessageParams{
-		ChatID:              banInfo.ChatID,
-		MessageID:           responseMessage.ID,
-		DisableNotification: true,
+	pinChatID := banInfo.ChatID
+	pinMessageID := responseMessage.ID
+	pinCtx, cancelPin := context.WithCancel(ctx)
+	banInfo.cancelPin = cancelPin
+	go delay(pinCtx, 5*60, func() {
+		b.PinChatMessage(ctx, &bot.PinChatMessageParams{
+			ChatID:              pinChatID,
+			MessageID:           pinMessageID,
+			DisableNotification: true,
+		})
 	})
 
 	return true
@@ -673,6 +685,9 @@ func handleVote(ctx context.Context, b *bot.Bot, update *models.Update, s *BanIn
 	msgID := int64(update.CallbackQuery.Message.Message.ID)
 
 	if superPoke == 1 || upvotes-downvotes >= int(s.Score) {
+		if s.cancelPin != nil {
+			s.cancelPin()
+		}
 		switch s.Type {
 		case BAN:
 			banUser(ctx, b, s)
@@ -686,6 +701,9 @@ func handleVote(ctx context.Context, b *bot.Bot, update *models.Update, s *BanIn
 	}
 
 	if superPoke == -1 || downvotes-upvotes >= int(MID_SCORE) {
+		if s.cancelPin != nil {
+			s.cancelPin()
+		}
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.VoteMessageID)})
 		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.RequestMessageID)})
 		delete(chatSession, msgID)

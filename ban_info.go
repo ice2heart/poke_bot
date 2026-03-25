@@ -32,6 +32,7 @@ type BanInfo struct {
 	Voters           map[int64]int8
 	Type             uint8
 	CreatedAt        time.Time
+	cancelPin        context.CancelFunc
 }
 
 const (
