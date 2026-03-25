@@ -47,13 +47,7 @@ func makeBanMessage(b *BanInfo) string {
 	if len(text) > 200 {
 		text = firstN(text, 200)
 	}
-	lines := strings.Split(text, "\n")
-	newLines := make([]string, 0, len(lines))
-	for _, line := range lines {
-		line = fmt.Sprintf(">%s", escape(line))
-		newLines = append(newLines, line)
-	}
-	text = strings.Join(newLines, "\n")
+	text = quoteText(text)
 
 	var username string
 	if b.UserName == "" {
@@ -236,12 +230,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		text := make([]string, 0, len(userMessages))
 		for i, v := range userMessages {
 			messageIDs[i] = int(v.MessageID)
-
-			lines := strings.Split(v.Text, "\n")
-			for _, line := range lines {
-				line = fmt.Sprintf(">%s", escape(line))
-				text = append(text, line)
-			}
+			text = append(text, quoteText(v.Text))
 		}
 		escapedText := strings.Join(text, "\n")
 		escapedText = firstN(escapedText, 3500)

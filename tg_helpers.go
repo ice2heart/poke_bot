@@ -17,6 +17,15 @@ var (
 	mdRegex       = regexp.MustCompile(`(['_~>#!=\-])`)
 )
 
+// quoteText escapes text and formats each line as a Telegram block-quote (">line").
+func quoteText(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = ">" + escape(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func escape(line string) string {
 	first_step := regexp.QuoteMeta(line)
 	second_step := strings.ReplaceAll(first_step, "`", "\\`")

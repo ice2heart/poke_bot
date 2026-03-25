@@ -68,7 +68,7 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 		makePublicGroupString(msg.Chat.ID), msg.ID)
 	text := fmt.Sprintf(
 		"Подозрительная активность: [сообщение](%s) отредактировано с добавлением ссылки спустя %d с\n\n%s",
-		msgLink, editDelaySec, escape(updatedText),
+		msgLink, editDelaySec, quoteText(updatedText),
 	)
 
 	systemMessage(ctx, b, msg.Chat.ID, text, 5*60)
