@@ -397,8 +397,8 @@ func updateUserFragTag(ctx context.Context, b *bot.Bot, chatID int64, ownerID in
 	_, isAdmin := chatAdmins[ownerID]
 	adminsMux.Unlock()
 
-	if !isAdmin {
-		log.Printf("[updateUserFragTag] skipping tag update: userID=%d is not an admin in chatID=%d", ownerID, chatID)
+	if isAdmin {
+		log.Printf("[updateUserFragTag] skipping tag update: userID=%d is an admin in chatID=%d", ownerID, chatID)
 		return
 	}
 
