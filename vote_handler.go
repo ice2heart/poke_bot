@@ -48,7 +48,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 				escape(fmt.Sprintf(
 					"Укажите ссылку на сообщение или пользователя.\nПримеры:\n/%s https://t.me/c/1657123097/2854347\n/%s @username",
 					cfg.command, cfg.command,
-				)))
+				)), true)
 		}
 
 		log.Printf("[%sHandler] new /%s from userID=%d in chatID=%d: %q",

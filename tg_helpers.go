@@ -290,7 +290,7 @@ func systemMessage(ctx context.Context, b *bot.Bot, chatID int64, text string, d
 	})
 }
 
-func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messageId int, text string, deleteOrigin ...bool) {
+func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messageId int, text string, deleteOrigin bool) {
 
 	reply, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    chatId,
@@ -309,7 +309,7 @@ func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messag
 	removeReplyID := reply.ID
 	removeOriginalID := messageId
 	go delay(ctx, 30, func() {
-		if len(deleteOrigin) == 0 {
+		if deleteOrigin {
 			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 				ChatID:    removeChatID,
 				MessageID: removeOriginalID,
@@ -383,7 +383,7 @@ func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, me
 	_, rep := chatAdmins[userID]
 	if !rep {
 		log.Printf("[isUserAdmin] unauthorized admin action: userID=%d in chatID=%d", userID, chatID)
-		systemAnswerToMessage(ctx, b, messageChatID, messageID, "Недостаточно прав. Необходимо быть администратором чата.")
+		systemAnswerToMessage(ctx, b, messageChatID, messageID, "Недостаточно прав. Необходимо быть администратором чата.", true)
 		return false
 	}
 	return true

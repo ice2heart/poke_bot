@@ -525,7 +525,7 @@ func checkForDuplicates(ctx context.Context, chatId int64, userid int64, b *bot.
 		if messageSession.UserID != userid {
 			continue
 		}
-		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("[Голосование уже создано](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), responseMessage))
+		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("[Голосование уже создано](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), responseMessage), true)
 		return true
 	}
 
@@ -584,7 +584,7 @@ func makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 }
 
 func onPauseMessage(ctx context.Context, b *bot.Bot, message *models.Message) {
-	systemAnswerToMessage(ctx, b, message.Chat.ID, message.ID, fmt.Sprintf("[%s %s](tg://user?id=%d), бот в данный момент приостановлен", message.From.FirstName, message.From.LastName, message.From.ID))
+	systemAnswerToMessage(ctx, b, message.Chat.ID, message.ID, fmt.Sprintf("[%s %s](tg://user?id=%d), бот в данный момент приостановлен", message.From.FirstName, message.From.LastName, message.From.ID), true)
 }
 
 func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
