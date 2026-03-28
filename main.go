@@ -161,6 +161,7 @@ func main() {
 		bot.WithDefaultHandler(handler),
 		bot.WithMiddlewares(logMessagesMiddleware, detectorMiddleware),
 		bot.WithCallbackQueryDataHandler("button", bot.MatchTypePrefix, voteCallbackHandler),
+		bot.WithAllowedUpdates(bot.AllowedUpdates{"message", "edited_message", "callback_query", "my_chat_member", "message_reaction", "message_reaction_count"}),
 	}
 
 	myBot, err = bot.New(botApiKey, opts...)
@@ -188,6 +189,7 @@ func main() {
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/test", bot.MatchTypePrefix, testHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypePrefix, startHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/delete", bot.MatchTypePrefix, deleteMessageHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/likes", bot.MatchTypePrefix, likesHandler)
 	log.Printf("[main] bot started as @%s userID=%d", me.Username, me.ID)
 	// each 12 hours update admins list
 	go ticker(ctx, 43200, getChatAdmins)
