@@ -1,3 +1,6 @@
+// Package cache provides a generic, TTL-based in-memory cache safe for
+// concurrent use. Expired entries are evicted by a background goroutine that
+// runs for the lifetime of the provided context.
 package cache
 
 import (
@@ -6,66 +9,79 @@ import (
 	"time"
 )
 
-const (
-	cacheCleanPeriod = 10 * time.Second
-)
+// cleanPeriod controls how often the background sweeper removes expired entries.
+const cleanPeriod = 10 * time.Second
 
-type cacheEntity[T any] struct {
-	data T
-	time time.Time
+// entry holds a cached value together with its expiry deadline.
+type entry[T any] struct {
+	value    T
+	expiresAt time.Time
 }
 
+// Cache is a generic TTL key-value store. The zero value is not usable;
+// create instances with New.
 type Cache[K comparable, V any] struct {
-	ctx context.Context
-
-	mux  sync.Mutex
-	data map[K]cacheEntity[V]
+	ctx  context.Context
+	mu   sync.Mutex
+	data map[K]entry[V]
 }
 
+// New creates a Cache and starts the background expiry sweeper.
+// The sweeper stops when ctx is cancelled.
 func New[K comparable, V any](ctx context.Context) *Cache[K, V] {
-	cache := &Cache[K, V]{
-		data: make(map[K]cacheEntity[V]),
+	c := &Cache[K, V]{
 		ctx:  ctx,
+		data: make(map[K]entry[V]),
 	}
-
-	go cache.cleanCache()
-
-	return cache
+	go c.sweep()
+	return c
 }
 
+// Get returns the value stored under k and true if the entry exists and has
+// not expired. Otherwise it returns the zero value and false.
 func (c *Cache[K, V]) Get(k K) (V, bool) {
-	c.mux.Lock()
-	defer c.mux.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	var val V
-
-	cacheEntity, ok := c.data[k]
-	if !ok {
-		return val, false
+	e, ok := c.data[k]
+	if !ok || time.Now().After(e.expiresAt) {
+		var zero V
+		return zero, false
 	}
-
-	if cacheEntity.time.Before(time.Now()) {
-		return val, false
-	}
-
-	val = cacheEntity.data
-
-	return val, true
+	return e.value, true
 }
 
+// Set stores v under k with the given TTL, overwriting any existing entry.
+// Calling Set with the same key updates the value and resets the TTL.
 func (c *Cache[K, V]) Set(k K, v V, ttl time.Duration) {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-	c.data[k] = cacheEntity[V]{
-		data: v,
-		time: time.Now().Add(ttl),
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data[k] = entry[V]{
+		value:    v,
+		expiresAt: time.Now().Add(ttl),
 	}
 }
 
-// cleanCache инвалидирует данные в кеше, если они устарели
-// Работает по схеме crawler
-func (c *Cache[K, T]) cleanCache() {
-	ticker := time.NewTicker(cacheCleanPeriod)
+// Filter returns the values of all live entries whose key satisfies fn.
+// Expired entries are excluded even if the sweeper has not yet removed them.
+func (c *Cache[K, V]) Filter(fn func(K) bool) []V {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	var result []V
+	for k, e := range c.data {
+		if now.Before(e.expiresAt) && fn(k) {
+			result = append(result, e.value)
+		}
+	}
+	return result
+}
+
+// sweep periodically removes entries that have passed their expiry deadline.
+// It runs until the cache's context is cancelled.
+func (c *Cache[K, V]) sweep() {
+	ticker := time.NewTicker(cleanPeriod)
 	defer ticker.Stop()
 
 	for {
@@ -73,13 +89,14 @@ func (c *Cache[K, T]) cleanCache() {
 		case <-c.ctx.Done():
 			return
 		case <-ticker.C:
-			c.mux.Lock()
-			for key, entity := range c.data {
-				if time.Now().After(entity.time) {
-					delete(c.data, key)
+			now := time.Now()
+			c.mu.Lock()
+			for k, e := range c.data {
+				if now.After(e.expiresAt) {
+					delete(c.data, k)
 				}
 			}
-			c.mux.Unlock()
+			c.mu.Unlock()
 		}
 	}
 }

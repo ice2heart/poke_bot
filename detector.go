@@ -5,16 +5,22 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"github.com/ice2heart/poke_bot/cache"
 )
 
 // detectorCh receives all updates for spam analysis.
 var detectorCh = make(chan *models.Update, 128)
 
-const reactionCacheSize = 20
+const reactionTTL = 24 * time.Hour
+
+type reactionKey struct {
+	chatID int64
+	userID int64
+}
 
 type reactionEntry struct {
 	userID   int64
@@ -22,21 +28,7 @@ type reactionEntry struct {
 	emoji    string
 }
 
-var (
-	reactionCacheMux sync.Mutex
-	reactionCache    = make(map[int64][]reactionEntry) // chatID -> entries
-)
-
-func pushReactionEntry(chatID int64, entry reactionEntry) {
-	reactionCacheMux.Lock()
-	defer reactionCacheMux.Unlock()
-	entries := reactionCache[chatID]
-	entries = append(entries, entry)
-	if len(entries) > reactionCacheSize {
-		entries = entries[len(entries)-reactionCacheSize:]
-	}
-	reactionCache[chatID] = entries
-}
+var reactionCache *cache.Cache[reactionKey, reactionEntry]
 
 // extractNewEmojis returns emojis added in NewReaction that were not in OldReaction.
 func extractNewEmojis(r *models.MessageReactionUpdated) (userID int64, username string, emojis []string) {
@@ -71,13 +63,13 @@ func processDetectorReaction(update *models.Update) {
 	}
 	log.Printf("[detector] reaction: userID=%d username=%q emojis=%v chatID=%d messageID=%d",
 		userID, username, newEmojis, r.Chat.ID, r.MessageID)
-	for _, emoji := range newEmojis {
-		pushReactionEntry(r.Chat.ID, reactionEntry{
-			userID:   userID,
-			username: username,
-			emoji:    emoji,
-		})
-	}
+	// Use the last emoji if multiple new ones; one entry per user per chat.
+	emoji := newEmojis[len(newEmojis)-1]
+	reactionCache.Set(reactionKey{chatID: r.Chat.ID, userID: userID}, reactionEntry{
+		userID:   userID,
+		username: username,
+		emoji:    emoji,
+	}, reactionTTL)
 }
 
 // editLinkMinDelay is the minimum edit delay (seconds) that triggers link-spam detection.
@@ -154,10 +146,9 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 func likesHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatID := update.Message.Chat.ID
 
-	reactionCacheMux.Lock()
-	entries := make([]reactionEntry, len(reactionCache[chatID]))
-	copy(entries, reactionCache[chatID])
-	reactionCacheMux.Unlock()
+	entries := reactionCache.Filter(func(k reactionKey) bool {
+		return k.chatID == chatID
+	})
 
 	msgID := update.Message.ID
 

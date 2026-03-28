@@ -197,6 +197,7 @@ func main() {
 	// each 30 minutes expire votes older than 1.5 days
 	go ticker(ctx, 1800, expireOldVotes)
 	// spam edit detector
+	reactionCache = cache.New[reactionKey, reactionEntry](ctx)
 	go startDetector(ctx, myBot)
 	myBot.Start(ctx)
 
