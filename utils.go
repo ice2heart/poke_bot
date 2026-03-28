@@ -20,6 +20,36 @@ func firstN(s string, n int) string {
 	return s
 }
 
+// entityText extracts the substring for a Telegram message entity.
+// Telegram offsets and lengths are in UTF-16 code units; Go strings are UTF-8,
+// so naive byte slicing corrupts multi-byte characters.
+func entityText(s string, offset, length int) string {
+	byteStart := -1
+	byteEnd := -1
+	u16 := 0
+	for i, r := range s {
+		if u16 == offset {
+			byteStart = i
+		}
+		if u16 == offset+length {
+			byteEnd = i
+			break
+		}
+		if r >= 0x10000 {
+			u16 += 2 // surrogate pair in UTF-16
+		} else {
+			u16++
+		}
+	}
+	if byteStart == -1 {
+		return ""
+	}
+	if byteEnd == -1 {
+		return s[byteStart:]
+	}
+	return s[byteStart:byteEnd]
+}
+
 type ParsedLink struct {
 	ChatID          int64
 	TargetMessageID int64

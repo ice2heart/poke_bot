@@ -67,7 +67,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 
 		for _, v := range update.Message.Entities {
 			log.Printf("[%sHandler] entity type=%v text=%q in chatID=%d",
-				cfg.command, v.Type, update.Message.Text[v.Offset:v.Offset+v.Length], chatId)
+				cfg.command, v.Type, entityText(update.Message.Text, v.Offset, v.Length), chatId)
 
 			var err error
 			var banInfo *BanInfo
@@ -84,7 +84,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 				}
 
 			case models.MessageEntityTypeMention:
-				username := update.Message.Text[v.Offset+1 : v.Offset+v.Length]
+				username := entityText(update.Message.Text, v.Offset+1, v.Length-1)
 				log.Printf("[%sHandler] processing mention @%s in chatID=%d", cfg.command, username, chatId)
 				if username == myID {
 					continue
