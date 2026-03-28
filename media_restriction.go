@@ -37,7 +37,7 @@ func getTextOnlyInfoByUserID(ctx context.Context, chatID int64, userID int64) (b
 		Type:   TEXT_ONLY,
 	}
 
-	user, err := getUser(ctx, userID)
+	user, err := resolveUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

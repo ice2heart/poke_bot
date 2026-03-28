@@ -37,7 +37,7 @@ func getMuteInfoByUserID(ctx context.Context, chatID int64, userID int64) (banIn
 		Type:   MUTE,
 	}
 
-	user, err := getUser(ctx, userID)
+	user, err := resolveUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

@@ -302,14 +302,13 @@ func getRatingFromUsername(ctx context.Context, username string) (score *ScoreRe
 	return score, nil
 }
 
-func getUser(ctx context.Context, uID int64) (userRecord *UserRecord, err error) {
-	filter := bson.D{
-		{Key: "uid", Value: uID},
-	}
+// getUser returns the UserRecord for the given Telegram user ID from MongoDB.
+// Returns an error if the user is not in the database.
+func getUser(ctx context.Context, uID int64) (*UserRecord, error) {
+	filter := bson.D{{Key: "uid", Value: uID}}
 	result := usersCollection.FindOne(ctx, filter)
 	var user UserRecord
-	err = result.Decode(&user)
-	if err != nil {
+	if err := result.Decode(&user); err != nil {
 		log.Printf("[getUser] FindOne failed for userID=%d: %v", uID, err)
 		return nil, err
 	}
