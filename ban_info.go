@@ -129,7 +129,22 @@ func getBanInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInf
 	}
 	user, err := getUser(ctx, userID)
 	if err != nil {
-		return nil, err
+		log.Printf("[getBanInfoByUserID] user %d not in DB, trying MTProto", userID)
+		if mtUser, mtErr := client.GetUser(ctx, userID); mtErr == nil {
+			username := mtUser.Username
+			log.Printf("[getBanInfoByUserID] MTProto resolved userID=%d username=%q", userID, username)
+			if dbErr := ensureUser(ctx, userID, username, username); dbErr != nil {
+				log.Printf("[getBanInfoByUserID] ensureUser failed for userID=%d: %v", userID, dbErr)
+			}
+			banInfo.UserName = username
+			banInfo.ProfileName = username
+		} else {
+			log.Printf("[getBanInfoByUserID] MTProto failed for userID=%d: %v", userID, mtErr)
+		}
+		banInfo.Score = LOW_SCORE
+		banInfo.LastMessage = "Сообщение не найдено"
+		banInfo.BanMessage = makeBanMessage(banInfo)
+		return banInfo, nil
 	}
 	banInfo.ProfileName = user.AltUsername
 	banInfo.UserName = user.Username

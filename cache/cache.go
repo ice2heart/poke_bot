@@ -14,7 +14,7 @@ const cleanPeriod = 10 * time.Second
 
 // entry holds a cached value together with its expiry deadline.
 type entry[T any] struct {
-	value    T
+	value     T
 	expiresAt time.Time
 }
 
@@ -57,7 +57,7 @@ func (c *Cache[K, V]) Set(k K, v V, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.data[k] = entry[V]{
-		value:    v,
+		value:     v,
 		expiresAt: time.Now().Add(ttl),
 	}
 }
