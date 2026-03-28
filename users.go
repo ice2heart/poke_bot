@@ -31,3 +31,35 @@ func resolveUser(ctx context.Context, uID int64) (*UserRecord, error) {
 
 	return &UserRecord{Uid: uID, Username: username, AltUsername: username}, nil
 }
+
+// prepareBanInfo fills the user-related and last-message fields of a BanInfo
+// for the given chatID/userID. It never returns an error: if the user cannot
+// be resolved via DB or MTProto, placeholder values are used so the caller
+// can always proceed with a valid struct.
+// The caller is responsible for setting Type and BanMessage.
+func prepareBanInfo(ctx context.Context, chatID, userID int64) *BanInfo {
+	banInfo := &BanInfo{
+		ChatID: chatID,
+		UserID: userID,
+	}
+
+	user, err := resolveUser(ctx, userID)
+	if err != nil {
+		log.Printf("[prepareBanInfo] could not resolve userID=%d, using placeholder", userID)
+		banInfo.Score = LOW_SCORE
+		banInfo.LastMessage = "Сообщение не найдено"
+		return banInfo
+	}
+	banInfo.ProfileName = user.AltUsername
+	banInfo.UserName = user.Username
+	banInfo.Score = calculateRequiredRating(user.Counter)
+
+	messages, err := getUserLastNthMessages(ctx, userID, chatID, 1)
+	if err != nil || len(messages) == 0 {
+		banInfo.LastMessage = "Сообщение не найдено"
+	} else {
+		banInfo.LastMessage = messages[0].Text
+		banInfo.TargetMessageID = messages[0].MessageID
+	}
+	return banInfo
+}

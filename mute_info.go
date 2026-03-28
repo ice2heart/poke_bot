@@ -30,31 +30,11 @@ func makeMuteMessage(b *BanInfo) string {
 	return fmt.Sprintf("Голосование за мут %s\nДля решения необходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
 }
 
-func getMuteInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInfo *BanInfo, err error) {
-	banInfo = &BanInfo{
-		ChatID: chatID,
-		UserID: userID,
-		Type:   MUTE,
-	}
-
-	user, err := resolveUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	banInfo.ProfileName = user.AltUsername
-	banInfo.UserName = user.Username
-	banInfo.Score = calculateRequiredRating(user.Counter)
-
-	messages, err := getUserLastNthMessages(ctx, userID, chatID, 1)
-	if err != nil || len(messages) == 0 {
-		banInfo.LastMessage = "Сообщение не найдено"
-	} else {
-		banInfo.LastMessage = messages[0].Text
-		banInfo.TargetMessageID = messages[0].MessageID
-	}
+func getMuteInfoByUserID(ctx context.Context, chatID int64, userID int64) (*BanInfo, error) {
+	banInfo := prepareBanInfo(ctx, chatID, userID)
+	banInfo.Type = MUTE
 	banInfo.BanMessage = makeMuteMessage(banInfo)
 	return banInfo, nil
-
 }
 
 func getMuteInfoByUser(ctx context.Context, chatID int64, username string) (banInfo *BanInfo, err error) {

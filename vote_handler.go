@@ -17,13 +17,24 @@ type voteHandlerConfig struct {
 	getByUsername func(ctx context.Context, chatID int64, username string) (*BanInfo, error)
 	getByMessage  func(ctx context.Context, chatID, messageID int64) (*BanInfo, error)
 
-	// usernameFallback is called when getByUsername fails (e.g. MTProto lookup for ban).
-	// Returns nil, err when the user cannot be found; non-nil BanInfo on success.
-	// When nil, the handler simply skips on a lookup failure.
-	usernameFallback func(ctx context.Context, chatID int64, username string) (*BanInfo, error)
-
 	// checkRecentCache guards against duplicate bans within the TTL window.
 	checkRecentCache bool
+}
+
+// newBanInfoNoDB builds a BanInfo for a user that is not in the database.
+// banType and makeMessage are caller-supplied so the function works for any
+// action type (ban, mute, text-only).
+func newBanInfoNoDB(chatID, userID int64, username string, banType uint8, makeMessage func(*BanInfo) string) *BanInfo {
+	banInfo := &BanInfo{
+		ChatID:      chatID,
+		UserID:      userID,
+		UserName:    username,
+		Score:       LOW_SCORE,
+		LastMessage: "Сообщение не найдено",
+		Type:        banType,
+	}
+	banInfo.BanMessage = makeMessage(banInfo)
+	return banInfo
 }
 
 func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
@@ -82,15 +93,9 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 				if err != nil {
 					log.Printf("[%sHandler] getByUsername failed for username=%q in chatID=%d: %v",
 						cfg.command, username, chatId, err)
-					if cfg.usernameFallback == nil {
-						continue
-					}
-					banInfo, err = cfg.usernameFallback(ctx, chatId, username)
-					if err != nil {
-						systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
-							escape(fmt.Sprintf("Пользователь @%v не найден", username)), true)
-						continue
-					}
+					systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
+						escape(fmt.Sprintf("Пользователь @%v не найден", username)), true)
+					continue
 				}
 
 			case models.MessageEntityTypeURL:
@@ -158,17 +163,10 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 }
 
 var banHandler = makeVoteHandler(voteHandlerConfig{
-	command:       "ban",
-	getByUserID:   getBanInfoByUserID,
-	getByUsername: getBanInfoByUsername,
-	getByMessage:  getBanInfo,
-	usernameFallback: func(ctx context.Context, chatID int64, username string) (*BanInfo, error) {
-		userInfo, err := client.GetUserByUsername(ctx, username)
-		if err != nil {
-			return nil, err
-		}
-		return getBanInfoByUserIDNoDB(chatID, userInfo.UserId, userInfo.Username), nil
-	},
+	command:          "ban",
+	getByUserID:      getBanInfoByUserID,
+	getByUsername:    getBanInfoByUsername,
+	getByMessage:     getBanInfo,
 	checkRecentCache: true,
 })
 

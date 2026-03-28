@@ -99,54 +99,21 @@ func getBanInfo(ctx context.Context, chatID int64, messageID int64) (banInfo *Ba
 	return banInfo, nil
 }
 
-func getBanInfoByUsername(ctx context.Context, chatID int64, username string) (banInfo *BanInfo, err error) {
+func getBanInfoByUsername(ctx context.Context, chatID int64, username string) (*BanInfo, error) {
 	user, err := getRatingFromUsername(ctx, username)
-	if err != nil {
+	if err == nil {
+		return getBanInfoByUserID(ctx, chatID, user.Userid)
+	}
+	userInfo, mtErr := client.GetUserByUsername(ctx, username)
+	if mtErr != nil {
 		return nil, err
 	}
-	return getBanInfoByUserID(ctx, chatID, user.Userid)
+	return newBanInfoNoDB(chatID, userInfo.UserId, userInfo.Username, BAN, makeBanMessage), nil
 }
 
-func getBanInfoByUserIDNoDB(chatID int64, userID int64, username string) (banInfo *BanInfo) {
-	banInfo = &BanInfo{
-		ChatID:          chatID,
-		UserID:          userID,
-		UserName:        username,
-		Score:           LOW_SCORE,
-		LastMessage:     "Сообщение не найдено",
-		TargetMessageID: 0,
-		Type:            BAN,
-	}
-	banInfo.BanMessage = makeBanMessage(banInfo)
-	return banInfo
-}
-
-func getBanInfoByUserID(ctx context.Context, chatID int64, userID int64) (banInfo *BanInfo, err error) {
-	banInfo = &BanInfo{
-		ChatID: chatID,
-		UserID: userID,
-		Type:   BAN,
-	}
-	user, err := resolveUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	banInfo.ProfileName = user.AltUsername
-	banInfo.UserName = user.Username
-	banInfo.Score = calculateRequiredRating(user.Counter)
-	log.Printf("[getBanInfoByUserID] resolved user: username=%q altUsername=%q chatID=%d userID=%d", user.Username, user.AltUsername, chatID, userID)
-
-	messages, err := getUserLastNthMessages(ctx, userID, chatID, 1)
-	if err != nil {
-		// MAYBE CAN BE USED as is
-		return nil, err
-	}
-	if len(messages) == 0 {
-		banInfo.LastMessage = "Сообщение не найдено"
-	} else {
-		banInfo.LastMessage = messages[0].Text
-		banInfo.TargetMessageID = messages[0].MessageID
-	}
+func getBanInfoByUserID(ctx context.Context, chatID int64, userID int64) (*BanInfo, error) {
+	banInfo := prepareBanInfo(ctx, chatID, userID)
+	banInfo.Type = BAN
 	banInfo.BanMessage = makeBanMessage(banInfo)
 	return banInfo, nil
 }
