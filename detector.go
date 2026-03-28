@@ -159,8 +159,10 @@ func likesHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	copy(entries, reactionCache[chatID])
 	reactionCacheMux.Unlock()
 
+	msgID := update.Message.ID
+
 	if len(entries) == 0 {
-		systemMessage(ctx, b, chatID, "Реакций пока нет", 30)
+		systemAnswerToMessage(ctx, b, chatID, msgID, "Реакций пока нет", true)
 		return
 	}
 
@@ -174,7 +176,7 @@ func likesHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		rows = append(rows, fmt.Sprintf("%s \\| %s \\| tg://user?id\\=%d", escape(name), e.emoji, e.userID))
 	}
 
-	systemMessage(ctx, b, chatID, strings.Join(rows, "\n"), 5*60)
+	systemAnswerToMessage(ctx, b, chatID, msgID, strings.Join(rows, "\n"), true)
 }
 
 // detectorMiddleware feeds all message and edit updates into the detection goroutine.

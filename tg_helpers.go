@@ -272,9 +272,9 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool,
 // systemMessage sends a message to chatId and auto-deletes it after delaySec seconds.
 func systemMessage(ctx context.Context, b *bot.Bot, chatID int64, text string, delaySec int64) {
 	sent, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    chatID,
-		Text:      text,
-		ParseMode: models.ParseModeMarkdown,
+		ChatID:             chatID,
+		Text:               text,
+		ParseMode:          models.ParseModeMarkdown,
 		LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: bot.True()},
 	})
 	if err != nil {
