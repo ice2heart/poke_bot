@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -128,7 +129,30 @@ func ensureIndexes(ctx context.Context) {
 		log.Printf("[ensureIndexes] settings.chatid index: %v", err)
 	}
 
+	// users: voteCounter descending — getTopUsersByVotes sort
+	if _, err := usersCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "voteCounter", Value: -1}},
+	}); err != nil {
+		log.Printf("[ensureIndexes] users.voteCounter index: %v", err)
+	}
+
 	log.Printf("[ensureIndexes] done")
+}
+
+// getTopUsersByVotes returns up to limit users sorted by voteCounter descending.
+func getTopUsersByVotes(ctx context.Context, limit int) ([]UserRecord, error) {
+	opts := options.Find().
+		SetSort(bson.D{{Key: "voteCounter", Value: -1}}).
+		SetLimit(int64(limit))
+	cursor, err := usersCollection.Find(ctx, bson.D{}, opts)
+	if err != nil {
+		return nil, fmt.Errorf("getTopUsersByVotes: %w", err)
+	}
+	var users []UserRecord
+	if err := cursor.All(ctx, &users); err != nil {
+		return nil, fmt.Errorf("getTopUsersByVotes cursor.All: %w", err)
+	}
+	return users, nil
 }
 
 func userPlusOneMessage(ctx context.Context, uID int64, username string, altname string) {
