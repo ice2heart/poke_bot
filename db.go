@@ -22,6 +22,7 @@ var (
 	banLogs                *mongo.Collection
 	chatMessages           *mongo.Collection
 	chatSettingsCollection *mongo.Collection
+	reactionsCollection    *mongo.Collection
 
 	upsertOptions *options.UpdateOptions
 )
@@ -54,6 +55,14 @@ type ChatMessage struct {
 	Date      uint64
 }
 
+type ReactionRecord struct {
+	UserID    int64  `bson:"userid"`
+	ChatID    int64  `bson:"chatid"`
+	MessageID int    `bson:"messageid"`
+	Emoji     string `bson:"emoji"`
+	Date      int64  `bson:"date"`
+}
+
 type ScoreResult struct {
 	Rating int   `bson:"rating"`
 	Userid int64 `bson:"userid"`
@@ -84,6 +93,7 @@ func initDb(ctx context.Context, connectionLine string, dbName string) {
 	banLogs = dataBase.Collection("ban_log")
 	chatMessages = dataBase.Collection("messages")
 	chatSettingsCollection = dataBase.Collection("settings")
+	reactionsCollection = dataBase.Collection("reactions")
 	ensureIndexes(ctx)
 }
 
@@ -129,6 +139,13 @@ func ensureIndexes(ctx context.Context) {
 		log.Printf("[ensureIndexes] settings.chatid index: %v", err)
 	}
 
+	// reactions: {chatid, userid} — lookup reactions per user per chat
+	if _, err := reactionsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "chatid", Value: 1}, {Key: "userid", Value: 1}},
+	}); err != nil {
+		log.Printf("[ensureIndexes] reactions.{chatid,userid} index: %v", err)
+	}
+
 	// users: voteCounter descending — getTopUsersByVotes sort
 	if _, err := usersCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{{Key: "voteCounter", Value: -1}},
@@ -137,6 +154,39 @@ func ensureIndexes(ctx context.Context) {
 	}
 
 	log.Printf("[ensureIndexes] done")
+}
+
+// saveReaction inserts a reaction record into the reactions collection.
+func saveReaction(ctx context.Context, rec *ReactionRecord) {
+	if _, err := reactionsCollection.InsertOne(ctx, rec); err != nil {
+		log.Printf("[saveReaction] insert failed userID=%d chatID=%d emoji=%q: %v",
+			rec.UserID, rec.ChatID, rec.Emoji, err)
+	}
+}
+
+// ensureUser upserts a user record, setting uid/counters only on insert and
+// updating username/altUsername whenever non-empty values are provided.
+func ensureUser(ctx context.Context, userID int64, username, altUsername string) error {
+	filter := bson.D{{Key: "uid", Value: userID}}
+	setDoc := bson.D{}
+	if username != "" {
+		setDoc = append(setDoc, bson.E{Key: "username", Value: strings.ToLower(username)})
+	}
+	if altUsername != "" {
+		setDoc = append(setDoc, bson.E{Key: "altUsername", Value: altUsername})
+	}
+	update := bson.D{
+		{Key: "$setOnInsert", Value: bson.D{
+			{Key: "uid", Value: userID},
+			{Key: "counter", Value: 0},
+			{Key: "voteCounter", Value: 0},
+		}},
+	}
+	if len(setDoc) > 0 {
+		update = append(update, bson.E{Key: "$set", Value: setDoc})
+	}
+	_, err := usersCollection.UpdateOne(ctx, filter, update, upsertOptions)
+	return err
 }
 
 // getTopUsersByVotes returns up to limit users sorted by voteCounter descending.

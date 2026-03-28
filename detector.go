@@ -55,7 +55,7 @@ func extractNewEmojis(r *models.MessageReactionUpdated) (userID int64, username 
 	return
 }
 
-func processDetectorReaction(update *models.Update) {
+func processDetectorReaction(ctx context.Context, update *models.Update) {
 	r := update.MessageReaction
 	userID, username, newEmojis := extractNewEmojis(r)
 	if len(newEmojis) == 0 {
@@ -63,8 +63,35 @@ func processDetectorReaction(update *models.Update) {
 	}
 	log.Printf("[detector] reaction: userID=%d username=%q emojis=%v chatID=%d messageID=%d",
 		userID, username, newEmojis, r.Chat.ID, r.MessageID)
+
+	// Ensure the reacting user exists in the users collection so they can be
+	// ban-targeted later. Fall back to MTProto if username is missing.
+	altUsername := ""
+	if _, err := getUser(ctx, userID); err != nil {
+		log.Printf("[detector] user %d not in DB, resolving via MTProto", userID)
+		if mtUser, mtErr := client.GetUser(ctx, userID); mtErr == nil {
+			username = mtUser.Username
+			altUsername = mtUser.Username
+			log.Printf("[detector] MTProto resolved userID=%d username=%q", userID, username)
+			if dbErr := ensureUser(ctx, userID, username, altUsername); dbErr != nil {
+				log.Printf("[detector] ensureUser failed for userID=%d: %v", userID, dbErr)
+			}
+		} else {
+			log.Printf("[detector] MTProto GetUser failed for userID=%d: %v", userID, mtErr)
+		}
+	}
+
 	// Use the last emoji if multiple new ones; one entry per user per chat.
 	emoji := newEmojis[len(newEmojis)-1]
+
+	go saveReaction(ctx, &ReactionRecord{
+		UserID:    userID,
+		ChatID:    r.Chat.ID,
+		MessageID: r.MessageID,
+		Emoji:     emoji,
+		Date:      int64(r.Date),
+	})
+
 	reactionCache.Set(reactionKey{chatID: r.Chat.ID, userID: userID}, reactionEntry{
 		userID:   userID,
 		username: username,
@@ -89,7 +116,7 @@ func startDetector(ctx context.Context, b *bot.Bot) {
 				processDetectorEdit(ctx, b, update)
 			}
 			if update.MessageReaction != nil {
-				processDetectorReaction(update)
+				processDetectorReaction(ctx, update)
 			}
 		}
 	}
