@@ -323,15 +323,18 @@ func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messag
 }
 
 func unbanUser(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (result bool, err error) {
-
-	//  -1000000000000 -
-	// log.Printf("user id %v", userId)
-	result, err = b.UnbanChatMember(ctx, &bot.UnbanChatMemberParams{
+	if userId < 0 {
+		// Negative IDs are channels/sender chats — use UnbanChatSenderChat.
+		return b.UnbanChatSenderChat(ctx, &bot.UnbanChatSenderChatParams{
+			ChatID:       chatId,
+			SenderChatID: int(userId),
+		})
+	}
+	return b.UnbanChatMember(ctx, &bot.UnbanChatMemberParams{
 		ChatID:       chatId,
 		UserID:       userId,
 		OnlyIfBanned: true,
 	})
-	return
 }
 
 func unmuteUser(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (result bool, err error) {
