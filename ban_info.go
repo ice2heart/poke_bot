@@ -118,7 +118,7 @@ func getBanInfoByUserID(ctx context.Context, chatID int64, userID int64) (*BanIn
 	return banInfo, nil
 }
 
-func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
+func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 
 	// jcart, _ := json.MarshalIndent(s, "", "\t")
 	// fmt.Println(string(jcart))
@@ -203,7 +203,15 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		escapedText = firstN(escapedText, 3500)
 		report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
 	}
+	alreadyDeleted := map[int64]bool{
+		s.TargetMessageID:  true,
+		s.VoteMessageID:    true,
+		s.RequestMessageID: true,
+	}
 	for _, v := range messageIDs {
+		if alreadyDeleted[int64(v)] {
+			continue
+		}
 		_, err = b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 			ChatID:    s.ChatID,
 			MessageID: int(v),
@@ -233,7 +241,5 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		}
 	}
 
-	if result {
-		go updateUserFragTag(ctx, b, s.ChatID, s.OwnerID)
-	}
+	return result
 }

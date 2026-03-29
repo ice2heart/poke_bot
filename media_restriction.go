@@ -72,7 +72,7 @@ func getTextOnlyInfo(ctx context.Context, chatID int64, messageID int64) (banInf
 
 }
 
-func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
+func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 	user, err := getUser(ctx, s.UserID)
 	var userRecord UserRecord
 	var banUsertag string
@@ -185,9 +185,9 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 		}
 		b.SendMessage(ctx, params)
 
-		go updateUserFragTag(ctx, b, s.ChatID, s.OwnerID)
 	}
 
+	return result
 }
 
 func getTextOnlyDurationInDays(user UserRecord) int {

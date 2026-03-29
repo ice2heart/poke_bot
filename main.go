@@ -694,13 +694,17 @@ func handleVote(ctx context.Context, b *bot.Bot, update *models.Update, s *BanIn
 		if s.cancelPin != nil {
 			s.cancelPin()
 		}
+		var actionResult bool
 		switch s.Type {
 		case BAN:
-			banUser(ctx, b, s)
+			actionResult = banUser(ctx, b, s)
 		case MUTE:
-			muteUser(ctx, b, s)
+			actionResult = muteUser(ctx, b, s)
 		case TEXT_ONLY:
-			textOnlyUser(ctx, b, s)
+			actionResult = textOnlyUser(ctx, b, s)
+		}
+		if actionResult {
+			go updateUserFragTag(ctx, b, s.ChatID, s.OwnerID)
 		}
 		delete(chatSession, msgID)
 		return answer

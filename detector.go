@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -67,7 +68,16 @@ func processDetectorReaction(ctx context.Context, update *models.Update) {
 	// Ensure the reacting user exists in the users collection so they can be
 	// ban-targeted later.
 	if resolved, err := resolveUser(ctx, userID); err == nil {
+		log.Printf("[detector] resolved userID=%d username=%q", userID, resolved.Username)
 		username = resolved.Username
+	} else {
+		log.Printf("[detector] resolveUser failed for userID=%d: %v; falling back to update data", userID, err)
+		if r.User != nil {
+			altUsername := strings.TrimSpace(r.User.FirstName + " " + r.User.LastName)
+			if err := ensureUser(ctx, userID, r.User.Username, altUsername); err != nil {
+				log.Printf("[detector] ensureUser fallback failed for userID=%d: %v", userID, err)
+			}
+		}
 	}
 
 	// Use the last emoji if multiple new ones; one entry per user per chat.
@@ -143,6 +153,9 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 
 	log.Printf("[detector] suspected spam edit: messageID=%d chatID=%d editDelaySec=%d",
 		msg.ID, msg.Chat.ID, editDelaySec)
+	if data, err := json.MarshalIndent(update, "", "\t"); err == nil {
+		log.Printf("[detector] update dump: %s", data)
+	}
 
 	updatedText := msg.Text
 	if updatedText == "" {

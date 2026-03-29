@@ -72,7 +72,7 @@ func getMuteInfo(ctx context.Context, chatID int64, messageID int64) (banInfo *B
 
 }
 
-func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
+func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 	log.Printf("[muteUser] start: userID=%d chatID=%d targetMessageID=%d", s.UserID, s.ChatID, s.TargetMessageID)
 
 	user, err := getUser(ctx, s.UserID)
@@ -190,9 +190,9 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) {
 			log.Printf("[muteUser] chat notification failed: chatID=%d: %v", s.ChatID, notifyErr)
 		}
 
-		go updateUserFragTag(ctx, b, s.ChatID, s.OwnerID)
 	}
 
+	return result
 }
 
 func getMuteDurationInDays(user UserRecord) int {
