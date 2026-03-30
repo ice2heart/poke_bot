@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"math"
 	"strings"
 	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"go.uber.org/zap"
 )
 
 func makeTextOnlyMessage(b *BanInfo) string {
@@ -99,13 +99,13 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 		UseIndependentChatPermissions: false,
 	})
 	if err != nil {
-		log.Printf("[textOnlyUser] RestrictChatMember failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
+		zap.S().Infof("[textOnlyUser] RestrictChatMember failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 	}
 
 	if result {
 		err = userAddMuteCounter(ctx, s.UserID)
 		if err != nil {
-			log.Printf("[textOnlyUser] userAddMuteCounter failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
+			zap.S().Infof("[textOnlyUser] userAddMuteCounter failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 		}
 	}
 
@@ -165,7 +165,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 			LinkPreviewOptions: disablePreview,
 		})
 		if err != nil {
-			log.Printf("[textOnlyUser] can't send report to recipientID=%d: %v", v, err)
+			zap.S().Infof("[textOnlyUser] can't send report to recipientID=%d: %v", v, err)
 		}
 	}
 	settingsMux.Unlock()

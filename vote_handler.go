@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"go.uber.org/zap"
 )
 
 // voteHandlerConfig describes how to resolve targets and any ban-specific extras.
@@ -63,11 +63,11 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 				)), true, 30)
 		}
 
-		log.Printf("[%sHandler] new /%s from userID=%d in chatID=%d: %q",
+		zap.S().Infof("[%sHandler] new /%s from userID=%d in chatID=%d: %q",
 			cfg.command, cfg.command, update.Message.From.ID, chatId, update.Message.Text)
 
 		for _, v := range update.Message.Entities {
-			log.Printf("[%sHandler] entity type=%v text=%q in chatID=%d",
+			zap.S().Infof("[%sHandler] entity type=%v text=%q in chatID=%d",
 				cfg.command, v.Type, entityText(update.Message.Text, v.Offset, v.Length), chatId)
 
 			var err error
@@ -75,24 +75,24 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 
 			switch v.Type {
 			case models.MessageEntityTypeTextMention:
-				log.Printf("[%sHandler] text mention: userID=%d firstName=%q in chatID=%d",
+				zap.S().Infof("[%sHandler] text mention: userID=%d firstName=%q in chatID=%d",
 					cfg.command, v.User.ID, v.User.FirstName, chatId)
 				banInfo, err = cfg.getByUserID(ctx, chatId, v.User.ID)
 				if err != nil {
-					log.Printf("[%sHandler] getByUserID failed for userID=%d in chatID=%d: %v",
+					zap.S().Infof("[%sHandler] getByUserID failed for userID=%d in chatID=%d: %v",
 						cfg.command, v.User.ID, chatId, err)
 					continue
 				}
 
 			case models.MessageEntityTypeMention:
 				username := entityText(update.Message.Text, v.Offset+1, v.Length-1)
-				log.Printf("[%sHandler] processing mention @%s in chatID=%d", cfg.command, username, chatId)
+				zap.S().Infof("[%sHandler] processing mention @%s in chatID=%d", cfg.command, username, chatId)
 				if username == myID {
 					continue
 				}
 				banInfo, err = cfg.getByUsername(ctx, chatId, username)
 				if err != nil {
-					log.Printf("[%sHandler] getByUsername failed for username=%q in chatID=%d: %v",
+					zap.S().Infof("[%sHandler] getByUsername failed for username=%q in chatID=%d: %v",
 						cfg.command, username, chatId, err)
 					systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
 						escape(fmt.Sprintf("Пользователь @%v не найден", username)), true, 30)
@@ -101,24 +101,24 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 
 			case models.MessageEntityTypeURL:
 				rawURL := entityText(update.Message.Text, v.Offset, v.Length)
-				log.Printf("[%sHandler] processing URL entity in chatID=%d: %q", cfg.command, chatId, rawURL)
+				zap.S().Infof("[%sHandler] processing URL entity in chatID=%d: %q", cfg.command, chatId, rawURL)
 				if m := tgUserLinkRegex.FindStringSubmatch(rawURL); m != nil {
 					userID, err := strconv.ParseInt(m[1], 10, 64)
 					if err != nil {
-						log.Printf("[%sHandler] failed to parse userID from tg://user link in chatID=%d: %v", cfg.command, chatId, err)
+						zap.S().Infof("[%sHandler] failed to parse userID from tg://user link in chatID=%d: %v", cfg.command, chatId, err)
 						continue
 					}
-					log.Printf("[%sHandler] tg://user link: userID=%d in chatID=%d", cfg.command, userID, chatId)
+					zap.S().Infof("[%sHandler] tg://user link: userID=%d in chatID=%d", cfg.command, userID, chatId)
 					banInfo, err = cfg.getByUserID(ctx, chatId, userID)
 					if err != nil {
-						log.Printf("[%sHandler] getByUserID failed for userID=%d in chatID=%d: %v", cfg.command, userID, chatId, err)
+						zap.S().Infof("[%sHandler] getByUserID failed for userID=%d in chatID=%d: %v", cfg.command, userID, chatId, err)
 					}
 					break
 				}
 				chatLinks := parseChatLink(rawURL, chatId, update.Message.Chat.Username, linkedChannelUsername)
 				for _, chatLink := range chatLinks {
 					if chatLink.err != nil {
-						log.Printf("[%sHandler] failed to parse chat link in chatID=%d: %v",
+						zap.S().Infof("[%sHandler] failed to parse chat link in chatID=%d: %v",
 							cfg.command, chatId, chatLink.err)
 						continue
 					}
@@ -154,7 +154,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 				}
 			}
 
-			log.Printf("[%sHandler] starting vote: userID=%d chatID=%d requiredScore=%d",
+			zap.S().Infof("[%sHandler] starting vote: userID=%d chatID=%d requiredScore=%d",
 				cfg.command, banInfo.UserID, chatId, banInfo.Score)
 			if !makeVoteMessage(ctx, banInfo, b) {
 				continue

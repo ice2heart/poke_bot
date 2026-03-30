@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"math"
 	"strings"
 	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"go.uber.org/zap"
 )
 
 func makeMuteMessage(b *BanInfo) string {
@@ -73,7 +73,7 @@ func getMuteInfo(ctx context.Context, chatID int64, messageID int64) (banInfo *B
 }
 
 func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
-	log.Printf("[muteUser] start: userID=%d chatID=%d targetMessageID=%d", s.UserID, s.ChatID, s.TargetMessageID)
+	zap.S().Infof("[muteUser] start: userID=%d chatID=%d targetMessageID=%d", s.UserID, s.ChatID, s.TargetMessageID)
 
 	user, err := getUser(ctx, s.UserID)
 	var userRecord UserRecord
@@ -86,7 +86,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 		banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
 	}
 
-	log.Printf("[muteUser] restricting: userID=%d chatID=%d duration=%d days", s.UserID, s.ChatID, getMuteDurationInDays(userRecord))
+	zap.S().Infof("[muteUser] restricting: userID=%d chatID=%d duration=%d days", s.UserID, s.ChatID, getMuteDurationInDays(userRecord))
 	result, err := b.RestrictChatMember(ctx, &bot.RestrictChatMemberParams{
 		ChatID:    s.ChatID,
 		UserID:    s.UserID,
@@ -98,15 +98,15 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 		},
 		UseIndependentChatPermissions: false,
 	})
-	log.Printf("[muteUser] RestrictChatMember result=%v err=%v", result, err)
+	zap.S().Infof("[muteUser] RestrictChatMember result=%v err=%v", result, err)
 	if err != nil {
-		log.Printf("[muteUser] RestrictChatMember failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
+		zap.S().Infof("[muteUser] RestrictChatMember failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 	}
 
 	if result {
 		err = userAddMuteCounter(ctx, s.UserID)
 		if err != nil {
-			log.Printf("[muteUser] userAddMuteCounter failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
+			zap.S().Infof("[muteUser] userAddMuteCounter failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 		}
 	}
 
@@ -166,7 +166,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 			LinkPreviewOptions: disablePreview,
 		})
 		if err != nil {
-			log.Printf("[muteUser] can't send report to recipientID=%d: %v", v, err)
+			zap.S().Infof("[muteUser] can't send report to recipientID=%d: %v", v, err)
 		}
 	}
 	settingsMux.Unlock()
@@ -184,10 +184,10 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 				MessageID: int(s.TargetMessageID),
 			}
 		}
-		log.Printf("[muteUser] sending chat notification: chatID=%d targetMessageID=%d", s.ChatID, s.TargetMessageID)
+		zap.S().Infof("[muteUser] sending chat notification: chatID=%d targetMessageID=%d", s.ChatID, s.TargetMessageID)
 		_, notifyErr := b.SendMessage(ctx, params)
 		if notifyErr != nil {
-			log.Printf("[muteUser] chat notification failed: chatID=%d: %v", s.ChatID, notifyErr)
+			zap.S().Infof("[muteUser] chat notification failed: chatID=%d: %v", s.ChatID, notifyErr)
 		}
 
 	}

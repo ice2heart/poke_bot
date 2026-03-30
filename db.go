@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"go.uber.org/zap"
 )
 
 var (
@@ -86,7 +86,7 @@ func initDb(ctx context.Context, connectionLine string, dbName string) {
 	if err := client.Ping(ctx, readpref.Primary()); err != nil {
 		panic(err)
 	}
-	log.Printf("[initDb] MongoDB connected, database=%q", dbName)
+	zap.S().Infof("[initDb] MongoDB connected, database=%q", dbName)
 	upsertOptions = &options.UpdateOptions{}
 	upsertOptions.SetUpsert(true)
 	dataBase = client.Database(dbName)
@@ -106,7 +106,7 @@ func ensureIndexes(ctx context.Context) {
 		Keys:    bson.D{{Key: "uid", Value: 1}},
 		Options: &options.IndexOptions{Unique: &t},
 	}); err != nil {
-		log.Printf("[ensureIndexes] users.uid index: %v", err)
+		zap.S().Infof("[ensureIndexes] users.uid index: %v", err)
 	}
 
 	// users: username (sparse) — lookup by username
@@ -115,21 +115,21 @@ func ensureIndexes(ctx context.Context) {
 		Keys:    bson.D{{Key: "username", Value: 1}},
 		Options: &options.IndexOptions{Sparse: &sparse},
 	}); err != nil {
-		log.Printf("[ensureIndexes] users.username index: %v", err)
+		zap.S().Infof("[ensureIndexes] users.username index: %v", err)
 	}
 
 	// messages: {chatid, messageid} — getMessageInfo / updateMessage
 	if _, err := chatMessages.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{{Key: "chatid", Value: 1}, {Key: "messageid", Value: 1}},
 	}); err != nil {
-		log.Printf("[ensureIndexes] messages.{chatid,messageid} index: %v", err)
+		zap.S().Infof("[ensureIndexes] messages.{chatid,messageid} index: %v", err)
 	}
 
 	// messages: {chatid, userid, date} — getUserLastNthMessages (filter + sort)
 	if _, err := chatMessages.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{{Key: "chatid", Value: 1}, {Key: "userid", Value: 1}, {Key: "date", Value: -1}},
 	}); err != nil {
-		log.Printf("[ensureIndexes] messages.{chatid,userid,date} index: %v", err)
+		zap.S().Infof("[ensureIndexes] messages.{chatid,userid,date} index: %v", err)
 	}
 
 	// settings: chatid (unique) — one settings doc per chat
@@ -137,30 +137,30 @@ func ensureIndexes(ctx context.Context) {
 		Keys:    bson.D{{Key: "chatid", Value: 1}},
 		Options: &options.IndexOptions{Unique: &t},
 	}); err != nil {
-		log.Printf("[ensureIndexes] settings.chatid index: %v", err)
+		zap.S().Infof("[ensureIndexes] settings.chatid index: %v", err)
 	}
 
 	// reactions: {chatid, userid} — lookup reactions per user per chat
 	if _, err := reactionsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{{Key: "chatid", Value: 1}, {Key: "userid", Value: 1}},
 	}); err != nil {
-		log.Printf("[ensureIndexes] reactions.{chatid,userid} index: %v", err)
+		zap.S().Infof("[ensureIndexes] reactions.{chatid,userid} index: %v", err)
 	}
 
 	// users: voteCounter descending — getTopUsersByVotes sort
 	if _, err := usersCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{{Key: "voteCounter", Value: -1}},
 	}); err != nil {
-		log.Printf("[ensureIndexes] users.voteCounter index: %v", err)
+		zap.S().Infof("[ensureIndexes] users.voteCounter index: %v", err)
 	}
 
-	log.Printf("[ensureIndexes] done")
+	zap.S().Info("[ensureIndexes] done")
 }
 
 // saveReaction inserts a reaction record into the reactions collection.
 func saveReaction(ctx context.Context, rec *ReactionRecord) {
 	if _, err := reactionsCollection.InsertOne(ctx, rec); err != nil {
-		log.Printf("[saveReaction] insert failed userID=%d chatID=%d emoji=%q: %v",
+		zap.S().Infof("[saveReaction] insert failed userID=%d chatID=%d emoji=%q: %v",
 			rec.UserID, rec.ChatID, rec.Emoji, err)
 	}
 }
@@ -233,7 +233,7 @@ func userPlusOneMessage(ctx context.Context, uID int64, username string, altname
 	)
 	_, err := usersCollection.UpdateOne(ctx, filter, update, upsertOptions)
 	if err != nil {
-		log.Printf("[userPlusOneMessage] upsert failed for userID=%d: %v", uID, err)
+		zap.S().Infof("[userPlusOneMessage] upsert failed for userID=%d: %v", uID, err)
 	}
 }
 
@@ -261,7 +261,7 @@ func userMakeVote(ctx context.Context, uID int64, amount int) {
 	}
 	_, err := usersCollection.UpdateOne(ctx, filter, update, upsertOptions)
 	if err != nil {
-		log.Printf("[userMakeVote] upsert failed for userID=%d amount=%d: %v", uID, amount, err)
+		zap.S().Infof("[userMakeVote] upsert failed for userID=%d amount=%d: %v", uID, amount, err)
 	}
 }
 
@@ -273,7 +273,7 @@ func getRatingFromUserID(ctx context.Context, uID int64) (score *ScoreResult, er
 	var user UserRecord
 	err = result.Decode(&user)
 	if err != nil {
-		log.Printf("[getRatingFromUserID] FindOne failed for userID=%d: %v", uID, err)
+		zap.S().Infof("[getRatingFromUserID] FindOne failed for userID=%d: %v", uID, err)
 		return nil, err
 	}
 
@@ -292,7 +292,7 @@ func getRatingFromUsername(ctx context.Context, username string) (score *ScoreRe
 	var user UserRecord
 	err = result.Decode(&user)
 	if err != nil {
-		log.Printf("[getRatingFromUsername] FindOne failed for username=%q: %v", username, err)
+		zap.S().Infof("[getRatingFromUsername] FindOne failed for username=%q: %v", username, err)
 		return nil, err
 	}
 
@@ -310,7 +310,7 @@ func getUser(ctx context.Context, uID int64) (*UserRecord, error) {
 	result := usersCollection.FindOne(ctx, filter)
 	var user UserRecord
 	if err := result.Decode(&user); err != nil {
-		log.Printf("[getUser] FindOne failed for userID=%d: %v", uID, err)
+		zap.S().Infof("[getUser] FindOne failed for userID=%d: %v", uID, err)
 		return nil, err
 	}
 	return &user, nil
@@ -319,7 +319,7 @@ func getUser(ctx context.Context, uID int64) (*UserRecord, error) {
 func pushBanLog(ctx context.Context, banInfo *BanInfo) {
 	_, err := banLogs.InsertOne(ctx, banInfo)
 	if err != nil {
-		log.Printf("[pushBanLog] insert failed for userID=%d chatID=%d type=%d: %v", banInfo.UserID, banInfo.ChatID, banInfo.Type, err)
+		zap.S().Infof("[pushBanLog] insert failed for userID=%d chatID=%d type=%d: %v", banInfo.UserID, banInfo.ChatID, banInfo.Type, err)
 	}
 
 }
@@ -327,7 +327,7 @@ func pushBanLog(ctx context.Context, banInfo *BanInfo) {
 func saveMessage(ctx context.Context, message *ChatMessage) {
 	_, err := chatMessages.InsertOne(ctx, message)
 	if err != nil {
-		log.Printf("[saveMessage] insert failed for messageID=%d chatID=%d userID=%d: %v", message.MessageID, message.ChatID, message.UserID, err)
+		zap.S().Infof("[saveMessage] insert failed for messageID=%d chatID=%d userID=%d: %v", message.MessageID, message.ChatID, message.UserID, err)
 		return
 	}
 }
@@ -351,7 +351,7 @@ func updateMessage(ctx context.Context, message *ChatMessage) {
 	}
 	_, err := chatMessages.UpdateMany(ctx, filter, updatePipeline)
 	if err != nil {
-		log.Printf("[updateMessage] UpdateMany failed for messageID=%d chatID=%d: %v", message.MessageID, message.ChatID, err)
+		zap.S().Infof("[updateMessage] UpdateMany failed for messageID=%d chatID=%d: %v", message.MessageID, message.ChatID, err)
 		return
 	}
 }
@@ -365,7 +365,7 @@ func getMessageInfo(ctx context.Context, chatID int64, messageID int64) (chatMes
 	var message ChatMessage
 	err = result.Decode(&message)
 	if err != nil {
-		log.Printf("[getMessageInfo] FindOne failed for messageID=%d chatID=%d: %v", messageID, chatID, err)
+		zap.S().Infof("[getMessageInfo] FindOne failed for messageID=%d chatID=%d: %v", messageID, chatID, err)
 		return nil, err
 	}
 	return &message, nil
@@ -375,14 +375,14 @@ func readChatsSettings(ctx context.Context) (ret map[int64]*DynamicSetting) {
 	filter := bson.D{}
 	cursor, err := chatSettingsCollection.Find(ctx, filter)
 	if err != nil {
-		log.Panicf("[readChatsSettings] Find failed: %v", err)
+		zap.S().Panicf("[readChatsSettings] Find failed: %v", err)
 	}
 	ret = make(map[int64]*DynamicSetting)
 	for cursor.Next(ctx) {
 		var result DynamicSetting
 		err := cursor.Decode(&result)
 		if err != nil {
-			log.Printf("[readChatsSettings] Decode failed: %v", err)
+			zap.S().Infof("[readChatsSettings] Decode failed: %v", err)
 			continue
 		}
 		ret[result.ChatID] = &result
@@ -401,7 +401,7 @@ func writeChatSettings(ctx context.Context, chatID int64, settings *DynamicSetti
 
 	_, err := chatSettingsCollection.UpdateOne(ctx, filter, update, upsertOptions)
 	if err != nil {
-		log.Printf("[writeChatSettings] upsert failed for chatID=%d: %v", chatID, err)
+		zap.S().Infof("[writeChatSettings] upsert failed for chatID=%d: %v", chatID, err)
 	}
 
 }
@@ -412,7 +412,7 @@ func deleteChatSettings(ctx context.Context, chatID int64) {
 	}
 	_, err := chatSettingsCollection.DeleteOne(ctx, filter)
 	if err != nil {
-		log.Printf("[deleteChatSettings] DeleteOne failed for chatID=%d: %v", chatID, err)
+		zap.S().Infof("[deleteChatSettings] DeleteOne failed for chatID=%d: %v", chatID, err)
 	}
 }
 
@@ -424,12 +424,12 @@ func getUserLastNthMessages(ctx context.Context, userID int64, chatID int64, amo
 	options := options.Find().SetSort(bson.D{{Key: "date", Value: -1}}).SetLimit(int64(amount))
 	cursor, err := chatMessages.Find(ctx, filter, options)
 	if err != nil {
-		log.Printf("[getUserLastNthMessages] Find failed for userID=%d chatID=%d limit=%d: %v", userID, chatID, amount, err)
+		zap.S().Infof("[getUserLastNthMessages] Find failed for userID=%d chatID=%d limit=%d: %v", userID, chatID, amount, err)
 		return nil, err
 	}
 	err = cursor.All(ctx, &ret)
 	if err != nil {
-		log.Printf("[getUserLastNthMessages] cursor.All failed for userID=%d chatID=%d: %v", userID, chatID, err)
+		zap.S().Infof("[getUserLastNthMessages] cursor.All failed for userID=%d chatID=%d: %v", userID, chatID, err)
 		return nil, err
 	}
 	return ret, nil
@@ -446,12 +446,12 @@ func getUserLastDaysMessages(ctx context.Context, userID int64, chatID int64, da
 	}
 	cursor, err := chatMessages.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "date", Value: -1}}))
 	if err != nil {
-		log.Printf("[getUserLastDaysMessages] Find failed for userID=%d chatID=%d days=%d: %v", userID, chatID, days, err)
+		zap.S().Infof("[getUserLastDaysMessages] Find failed for userID=%d chatID=%d days=%d: %v", userID, chatID, days, err)
 		return nil, err
 	}
 	err = cursor.All(ctx, &ret)
 	if err != nil {
-		log.Printf("[getUserLastDaysMessages] cursor.All failed for userID=%d chatID=%d: %v", userID, chatID, err)
+		zap.S().Infof("[getUserLastDaysMessages] cursor.All failed for userID=%d chatID=%d: %v", userID, chatID, err)
 		return nil, err
 	}
 	return ret, nil

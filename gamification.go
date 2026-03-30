@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"go.uber.org/zap"
 )
 
 func bestHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
@@ -24,7 +24,7 @@ func bestHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 	topUsers, err := getTopUsersByVotes(ctx, 100)
 	if err != nil {
-		log.Printf("[bestHandler] getTopUsersByVotes failed: %v", err)
+		zap.S().Infof("[bestHandler] getTopUsersByVotes failed: %v", err)
 		return
 	}
 
@@ -57,6 +57,6 @@ func bestHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		ParseMode: models.ParseModeMarkdown,
 	})
 	if err != nil {
-		log.Printf("[bestHandler] SendMessage failed chatID=%d: %v", chatID, err)
+		zap.S().Infof("[bestHandler] SendMessage failed chatID=%d: %v", chatID, err)
 	}
 }

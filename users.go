@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"log"
+
+	"go.uber.org/zap"
 )
 
 // resolveUser returns the UserRecord for uID, using MongoDB as the primary
@@ -16,17 +17,17 @@ func resolveUser(ctx context.Context, uID int64) (*UserRecord, error) {
 		return user, nil
 	}
 
-	log.Printf("[resolveUser] userID=%d not in DB, trying MTProto", uID)
+	zap.S().Infof("[resolveUser] userID=%d not in DB, trying MTProto", uID)
 	mtUser, mtErr := client.GetUser(ctx, uID)
 	if mtErr != nil {
-		log.Printf("[resolveUser] MTProto failed for userID=%d: %v", uID, mtErr)
+		zap.S().Infof("[resolveUser] MTProto failed for userID=%d: %v", uID, mtErr)
 		return nil, err // return original DB error
 	}
 
 	username := mtUser.Username
-	log.Printf("[resolveUser] MTProto resolved userID=%d username=%q", uID, username)
+	zap.S().Infof("[resolveUser] MTProto resolved userID=%d username=%q", uID, username)
 	if dbErr := ensureUser(ctx, uID, username, username); dbErr != nil {
-		log.Printf("[resolveUser] ensureUser failed for userID=%d: %v", uID, dbErr)
+		zap.S().Infof("[resolveUser] ensureUser failed for userID=%d: %v", uID, dbErr)
 	}
 
 	return &UserRecord{Uid: uID, Username: username, AltUsername: username}, nil
@@ -45,7 +46,7 @@ func prepareBanInfo(ctx context.Context, chatID, userID int64) *BanInfo {
 
 	user, err := resolveUser(ctx, userID)
 	if err != nil {
-		log.Printf("[prepareBanInfo] could not resolve userID=%d, using placeholder", userID)
+		zap.S().Infof("[prepareBanInfo] could not resolve userID=%d, using placeholder", userID)
 		banInfo.Score = LOW_SCORE
 		banInfo.LastMessage = "Сообщение не найдено"
 		return banInfo

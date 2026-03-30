@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"go.uber.org/zap"
 )
 
 var (
@@ -93,7 +93,7 @@ func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMar
 	})
 
 	if err != nil {
-		log.Printf("[getBanMessageKeyboard] marshal error for chatID=%d userID=%d: %v", chatId, userId, err)
+		zap.S().Infof("[getBanMessageKeyboard] marshal error for chatID=%d userID=%d: %v", chatId, userId, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -116,7 +116,7 @@ func getMuteMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMa
 	})
 
 	if err != nil {
-		log.Printf("[getMuteMessageKeyboard] marshal error for chatID=%d userID=%d: %v", chatId, userId, err)
+		zap.S().Infof("[getMuteMessageKeyboard] marshal error for chatID=%d userID=%d: %v", chatId, userId, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -139,7 +139,7 @@ func getChatListKeyboard(chatList []Chat) *models.InlineKeyboardMarkup {
 			ChatID: v.ChatID,
 		})
 		if err != nil {
-			log.Printf("[getChatListKeyboard] marshal error for chatID=%d: %v", v.ChatID, err)
+			zap.S().Infof("[getChatListKeyboard] marshal error for chatID=%d: %v", v.ChatID, err)
 			continue
 		}
 		buttons[k] = []models.InlineKeyboardButton{{Text: v.ChatName, CallbackData: fmt.Sprintf("b_%s", showChat)}}
@@ -148,7 +148,7 @@ func getChatListKeyboard(chatList []Chat) *models.InlineKeyboardMarkup {
 		Action: ACTION_SHOW_CHAT_LIST,
 	})
 	if err != nil {
-		log.Printf("[getChatListKeyboard] marshal error for refresh button: %v", err)
+		zap.S().Infof("[getChatListKeyboard] marshal error for refresh button: %v", err)
 		return nil
 	}
 	buttons[len(chatList)] = []models.InlineKeyboardButton{{Text: "🗘 Обновить", CallbackData: fmt.Sprintf("b_%s", refresh)}}
@@ -162,7 +162,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		ChatID: chatID,
 	})
 	if err != nil {
-		log.Printf("[getChatActionsKeyboard] marshal error for pause button chatID=%d: %v", chatID, err)
+		zap.S().Infof("[getChatActionsKeyboard] marshal error for pause button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -172,7 +172,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		ChatID: chatID,
 	})
 	if err != nil {
-		log.Printf("[getChatActionsKeyboard] marshal error for unpause button chatID=%d: %v", chatID, err)
+		zap.S().Infof("[getChatActionsKeyboard] marshal error for unpause button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -182,7 +182,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		ChatID: chatID,
 	})
 	if err != nil {
-		log.Printf("[getChatActionsKeyboard] marshal error for enable-log button chatID=%d: %v", chatID, err)
+		zap.S().Infof("[getChatActionsKeyboard] marshal error for enable-log button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -192,7 +192,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		ChatID: chatID,
 	})
 	if err != nil {
-		log.Printf("[getChatActionsKeyboard] marshal error for disable-log button chatID=%d: %v", chatID, err)
+		zap.S().Infof("[getChatActionsKeyboard] marshal error for disable-log button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -201,7 +201,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		Action: ACTION_SHOW_CHAT_LIST,
 	})
 	if err != nil {
-		log.Printf("[getChatActionsKeyboard] marshal error for back button chatID=%d: %v", chatID, err)
+		zap.S().Infof("[getChatActionsKeyboard] marshal error for back button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -211,7 +211,7 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 		ChatID: chatID,
 	})
 	if err != nil {
-		log.Printf("[getChatActionsKeyboard] marshal error for leave-chat button chatID=%d: %v", chatID, err)
+		zap.S().Infof("[getChatActionsKeyboard] marshal error for leave-chat button chatID=%d: %v", chatID, err)
 		return &models.InlineKeyboardMarkup{
 			InlineKeyboard: [][]models.InlineKeyboardButton{},
 		}
@@ -253,7 +253,7 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool,
 	})
 	ret = make(map[int64]bool)
 	if err != nil {
-		log.Printf("[getAdmins] GetChatAdministrators failed for chatID=%d: %v", chat, err)
+		zap.S().Infof("[getAdmins] GetChatAdministrators failed for chatID=%d: %v", chat, err)
 		return nil, err
 	}
 	for _, admin := range admins {
@@ -263,7 +263,7 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool,
 		case models.ChatMemberTypeOwner:
 			ret[admin.Owner.User.ID] = true
 		default:
-			log.Printf("[getAdmins] unexpected member type %q in chatID=%d", admin.Type, chat)
+			zap.S().Infof("[getAdmins] unexpected member type %q in chatID=%d", admin.Type, chat)
 		}
 	}
 	return ret, nil
@@ -278,7 +278,7 @@ func systemMessage(ctx context.Context, b *bot.Bot, chatID int64, text string, d
 		LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: bot.True()},
 	})
 	if err != nil {
-		log.Printf("[systemMessage] SendMessage failed: chatID=%d: %v", chatID, err)
+		zap.S().Infof("[systemMessage] SendMessage failed: chatID=%d: %v", chatID, err)
 		return
 	}
 	sentID := sent.ID
@@ -302,7 +302,7 @@ func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messag
 		},
 	})
 	if err != nil {
-		log.Printf("[systemAnswerToMessage] SendMessage failed: chatID=%d messageID=%d: %v", chatId, messageId, err)
+		zap.S().Infof("[systemAnswerToMessage] SendMessage failed: chatID=%d messageID=%d: %v", chatId, messageId, err)
 		return
 	}
 	removeChatID := chatId
@@ -368,7 +368,7 @@ func deleteAllMessages(ctx context.Context, b *bot.Bot, chatId int64, userId int
 			MessageID: int(msg.MessageID),
 		})
 		if delErr != nil {
-			log.Printf("[deleteAllMessages] can't delete messageID=%d in chatID=%d: %v", msg.MessageID, chatId, delErr)
+			zap.S().Infof("[deleteAllMessages] can't delete messageID=%d in chatID=%d: %v", msg.MessageID, chatId, delErr)
 		}
 	}
 	return true, nil
@@ -385,7 +385,7 @@ func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, me
 	chatAdmins := checkAdmins(ctx, b, chatID)
 	_, rep := chatAdmins[userID]
 	if !rep {
-		log.Printf("[isUserAdmin] unauthorized admin action: userID=%d in chatID=%d", userID, chatID)
+		zap.S().Infof("[isUserAdmin] unauthorized admin action: userID=%d in chatID=%d", userID, chatID)
 		systemAnswerToMessage(ctx, b, messageChatID, messageID, "Недостаточно прав. Необходимо быть администратором чата.", true, 30)
 		return false
 	}
@@ -401,13 +401,13 @@ func updateUserFragTag(ctx context.Context, b *bot.Bot, chatID int64, ownerID in
 	adminsMux.Unlock()
 
 	if isAdmin {
-		log.Printf("[updateUserFragTag] skipping tag update: userID=%d is an admin in chatID=%d", ownerID, chatID)
+		zap.S().Infof("[updateUserFragTag] skipping tag update: userID=%d is an admin in chatID=%d", ownerID, chatID)
 		return
 	}
 
 	user, err := getUser(ctx, ownerID)
 	if err != nil {
-		log.Printf("[updateUserFragTag] getUser failed for userID=%d: %v", ownerID, err)
+		zap.S().Infof("[updateUserFragTag] getUser failed for userID=%d: %v", ownerID, err)
 		return
 	}
 	title := fmt.Sprintf("frags: %d", user.VoteCounter)
@@ -417,7 +417,7 @@ func updateUserFragTag(ctx context.Context, b *bot.Bot, chatID int64, ownerID in
 		Tag:    title,
 	})
 	if err != nil {
-		log.Printf("[updateUserFragTag] SetChatMemberTag failed: userID=%d chatID=%d: %v", ownerID, chatID, err)
+		zap.S().Infof("[updateUserFragTag] SetChatMemberTag failed: userID=%d chatID=%d: %v", ownerID, chatID, err)
 	}
 }
 

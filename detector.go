@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/ice2heart/poke_bot/cache"
+	"go.uber.org/zap"
 )
 
 // detectorCh receives all updates for spam analysis.
@@ -63,22 +63,22 @@ func processDetectorReaction(ctx context.Context, update *models.Update) {
 	if len(newEmojis) == 0 {
 		return
 	}
-	log.Printf("[detector] reaction: userID=%d username=%q emojis=%v chatID=%d messageID=%d",
+	zap.S().Infof("[detector] reaction: userID=%d username=%q emojis=%v chatID=%d messageID=%d",
 		userID, username, newEmojis, r.Chat.ID, r.MessageID)
 
 	// Ensure the reacting user exists in the users collection so they can be
 	// ban-targeted later.
 	var altUsername string
 	if resolved, err := resolveUser(ctx, userID); err == nil {
-		log.Printf("[detector] resolved userID=%d username=%q altUsername=%q", userID, resolved.Username, resolved.AltUsername)
+		zap.S().Infof("[detector] resolved userID=%d username=%q altUsername=%q", userID, resolved.Username, resolved.AltUsername)
 		username = resolved.Username
 		altUsername = resolved.AltUsername
 	} else {
-		log.Printf("[detector] resolveUser failed for userID=%d: %v; falling back to update data", userID, err)
+		zap.S().Infof("[detector] resolveUser failed for userID=%d: %v; falling back to update data", userID, err)
 		if r.User != nil {
 			altUsername = strings.TrimSpace(r.User.FirstName + " " + r.User.LastName)
 			if err := ensureUser(ctx, userID, r.User.Username, altUsername); err != nil {
-				log.Printf("[detector] ensureUser fallback failed for userID=%d: %v", userID, err)
+				zap.S().Infof("[detector] ensureUser fallback failed for userID=%d: %v", userID, err)
 			}
 		}
 	}
@@ -161,10 +161,10 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 		return
 	}
 
-	log.Printf("[detector] suspected spam edit: messageID=%d chatID=%d editDelaySec=%d",
+	zap.S().Infof("[detector] suspected spam edit: messageID=%d chatID=%d editDelaySec=%d",
 		msg.ID, msg.Chat.ID, editDelaySec)
 	if data, err := json.MarshalIndent(update, "", "\t"); err == nil {
-		log.Printf("[detector] update dump: %s", data)
+		zap.S().Infof("[detector] update dump: %s", data)
 	}
 
 	updatedText := msg.Text
@@ -221,7 +221,7 @@ func detectorMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 		select {
 		case detectorCh <- update:
 		default:
-			log.Printf("[detector] channel full, dropping update")
+			zap.S().Info("[detector] channel full, dropping update")
 		}
 		next(ctx, b, update)
 	}

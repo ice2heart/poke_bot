@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	"go.uber.org/zap"
 )
 
 const (
@@ -143,7 +143,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 		UserID: s.UserID,
 	})
 	if err != nil {
-		log.Printf("[banUser] BanChatMember failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
+		zap.S().Infof("[banUser] BanChatMember failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 	}
 
 	if !result && len(s.UserName) != 0 {
@@ -153,26 +153,26 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 		result, err = client.BanUser(ctx, settings.ChatID, settings.ChatAccessHash, s.UserName)
 		settingsMux.Unlock()
 		if err != nil {
-			log.Printf("[banUser] MTProto fallback ban failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
+			zap.S().Infof("[banUser] MTProto fallback ban failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 		}
 	}
 	if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 		ChatID:    s.ChatID,
 		MessageID: int(s.TargetMessageID),
 	}); err != nil {
-		log.Printf("[banUser] can't delete target messageID=%d in chatID=%d: %v", s.TargetMessageID, s.ChatID, err)
+		zap.S().Infof("[banUser] can't delete target messageID=%d in chatID=%d: %v", s.TargetMessageID, s.ChatID, err)
 	}
 	if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 		ChatID:    s.ChatID,
 		MessageID: int(s.VoteMessageID),
 	}); err != nil {
-		log.Printf("[banUser] can't delete vote messageID=%d in chatID=%d: %v", s.VoteMessageID, s.ChatID, err)
+		zap.S().Infof("[banUser] can't delete vote messageID=%d in chatID=%d: %v", s.VoteMessageID, s.ChatID, err)
 	}
 	if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 		ChatID:    s.ChatID,
 		MessageID: int(s.RequestMessageID),
 	}); err != nil {
-		log.Printf("[banUser] can't delete request messageID=%d in chatID=%d: %v", s.RequestMessageID, s.ChatID, err)
+		zap.S().Infof("[banUser] can't delete request messageID=%d in chatID=%d: %v", s.RequestMessageID, s.ChatID, err)
 	}
 
 	resultText := "Заблокирован успешно"
@@ -217,7 +217,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 			MessageID: int(v),
 		})
 		if err != nil {
-			log.Printf("[banUser] can't delete messageID=%d for userID=%d in chatID=%d: %v", v, s.UserID, s.ChatID, err)
+			zap.S().Infof("[banUser] can't delete messageID=%d for userID=%d in chatID=%d: %v", v, s.UserID, s.ChatID, err)
 		}
 	}
 	pushBanLog(ctx, s)
@@ -237,7 +237,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 			LinkPreviewOptions: disablePreview,
 		})
 		if err != nil {
-			log.Printf("[banUser] can't send report to recipientID=%d: %v", v, err)
+			zap.S().Infof("[banUser] can't send report to recipientID=%d: %v", v, err)
 		}
 	}
 

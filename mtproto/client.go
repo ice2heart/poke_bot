@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 
 	"github.com/gotd/contrib/bg"
 	"github.com/gotd/td/telegram"
@@ -62,7 +61,7 @@ func (client *MTProtoHelper) Init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("[MTProtoHelper.Init] connected, seq=%d pts=%d", state.Seq, state.Pts)
+	client.Logger.Sugar().Infof("[MTProtoHelper.Init] connected, seq=%d pts=%d", state.Seq, state.Pts)
 	return nil
 }
 
@@ -113,7 +112,7 @@ func (client *MTProtoHelper) GetAccessHash(ctx context.Context, peerId int64) (h
 	if err != nil {
 		return 0, err
 	}
-	log.Printf("[GetAccessHash] peerID=%d channelID=%d peerType=%v", peerId, -1000000000000-peerId, peerType)
+	client.Logger.Sugar().Infof("[GetAccessHash] peerID=%d channelID=%d peerType=%v", peerId, -1000000000000-peerId, peerType)
 	switch peerType {
 	case CHANNEL:
 		{
@@ -123,7 +122,7 @@ func (client *MTProtoHelper) GetAccessHash(ctx context.Context, peerId int64) (h
 				return 0, err
 			}
 			chats := channelsInfo.GetChats()
-			log.Printf("[GetAccessHash] got %d chats for peerID=%d", len(chats), peerId)
+			client.Logger.Sugar().Infof("[GetAccessHash] got %d chats for peerID=%d", len(chats), peerId)
 			for _, chatInfo := range chats {
 				switch v := chatInfo.(type) {
 				case *tg.Channel:
@@ -149,7 +148,7 @@ func (client *MTProtoHelper) GetAccessHash(ctx context.Context, peerId int64) (h
 			for _, chatsInfo := range chats {
 				switch chatsInfo.(type) {
 				case *tg.Chat:
-					log.Printf("[GetAccessHash] plain chat peerID=%d has no access hash", peerId)
+					client.Logger.Sugar().Infof("[GetAccessHash] plain chat peerID=%d has no access hash", peerId)
 					return 0, nil
 				}
 			}
@@ -192,7 +191,7 @@ func (client *MTProtoHelper) GetUser(ctx context.Context, uid int64) (user *MTpr
 		return nil, fmt.Errorf("can't get user %v", err)
 	}
 	for _, userInfoItem := range userInfo {
-		log.Printf("[GetUser] typeID=%v for userID=%d", userInfoItem.TypeID(), uid)
+		client.Logger.Sugar().Infof("[GetUser] typeID=%v for userID=%d", userInfoItem.TypeID(), uid)
 		switch v := userInfoItem.(type) {
 		case *tg.User:
 			hash, ok := v.GetAccessHash()
@@ -206,7 +205,7 @@ func (client *MTProtoHelper) GetUser(ctx context.Context, uid int64) (user *MTpr
 			}
 			return user, nil
 		default:
-			log.Printf("[GetUser] unexpected typeID=%v for userID=%d", userInfoItem.TypeID(), uid)
+			client.Logger.Sugar().Infof("[GetUser] unexpected typeID=%v for userID=%d", userInfoItem.TypeID(), uid)
 		}
 	}
 	return nil, errors.New("the user is not found")
@@ -238,7 +237,7 @@ func (client *MTProtoHelper) GetPeerByUsername(ctx context.Context, username str
 	usernameRequest := tg.ContactsResolveUsernameRequest{Username: username}
 	userInfo, err := client.api.ContactsResolveUsername(ctx, &usernameRequest)
 	if err != nil {
-		log.Printf("[GetPeerByUsername] ContactsResolveUsername failed for username=%q: %v", username, err)
+		client.Logger.Sugar().Infof("[GetPeerByUsername] ContactsResolveUsername failed for username=%q: %v", username, err)
 		return nil, err
 	}
 	users := userInfo.MapUsers().UserToMap()
