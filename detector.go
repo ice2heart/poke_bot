@@ -136,6 +136,12 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 		return
 	}
 
+	for _, e := range msg.Entities {
+		if e.Type == models.MessageEntityTypeBotCommand {
+			return
+		}
+	}
+
 	hasLink := false
 	for _, e := range msg.Entities {
 		if e.Type == models.MessageEntityTypeURL || e.Type == models.MessageEntityTypeTextLink {

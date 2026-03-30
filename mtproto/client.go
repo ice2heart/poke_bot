@@ -55,7 +55,7 @@ func (client *MTProtoHelper) Init(ctx context.Context) error {
 
 	// Now you can use client.
 	if _, err := client.tg_client.Auth().Bot(ctx, client.BotApiKey); err != nil {
-		log.Panicf("[MTProtoHelper.Init] bot auth failed: %v", err)
+		return fmt.Errorf("bot auth failed: %w", err)
 	}
 	client.api = client.tg_client.API()
 	state, err := client.api.UpdatesGetState(ctx)
@@ -64,7 +64,6 @@ func (client *MTProtoHelper) Init(ctx context.Context) error {
 	}
 	log.Printf("[MTProtoHelper.Init] connected, seq=%d pts=%d", state.Seq, state.Pts)
 	return nil
-
 }
 
 func (client *MTProtoHelper) Stop() {
@@ -96,26 +95,29 @@ func (client *MTProtoHelper) Stop() {
 
 //     raise ValueError(f"Peer id invalid: {peer_id}")
 
-func idType(peerId int64) Id_Type {
+func idType(peerId int64) (Id_Type, error) {
 	if peerId < 0 {
 		if MIN_CHAT_ID <= peerId {
-			return CHAT
+			return CHAT, nil
 		}
 		if MIN_CHANNEL_ID <= peerId && peerId < MAX_CHANNEL_ID {
-			return CHANNEL
+			return CHANNEL, nil
 		}
-		return CHANNEL
+		return 0, fmt.Errorf("peer ID %d out of known range", peerId)
 	}
-	return USER
+	return USER, nil
 }
 
 func (client *MTProtoHelper) GetAccessHash(ctx context.Context, peerId int64) (hashCode int64, err error) {
-
-	peerType := idType(peerId)
+	peerType, err := idType(peerId)
+	if err != nil {
+		return 0, err
+	}
 	log.Printf("[GetAccessHash] peerID=%d channelID=%d peerType=%v", peerId, -1000000000000-peerId, peerType)
 	switch peerType {
 	case CHANNEL:
 		{
+			// AccessHash: 0 works for channels the bot is already a member of (min-constructor).
 			channelsInfo, err := client.api.ChannelsGetChannels(ctx, []tg.InputChannelClass{&tg.InputChannel{ChannelID: -1000000000000 - peerId, AccessHash: 0}})
 			if err != nil {
 				return 0, err
@@ -123,10 +125,13 @@ func (client *MTProtoHelper) GetAccessHash(ctx context.Context, peerId int64) (h
 			chats := channelsInfo.GetChats()
 			log.Printf("[GetAccessHash] got %d chats for peerID=%d", len(chats), peerId)
 			for _, chatInfo := range chats {
-
 				switch v := chatInfo.(type) {
 				case *tg.Channel:
-					return v.AccessHash, nil
+					hash, ok := v.GetAccessHash()
+					if !ok {
+						return 0, fmt.Errorf("channel %d has no access hash", v.ID)
+					}
+					return hash, nil
 				case *tg.ChannelForbidden:
 
 				default:
@@ -149,10 +154,11 @@ func (client *MTProtoHelper) GetAccessHash(ctx context.Context, peerId int64) (h
 				}
 			}
 			return 0, fmt.Errorf("chat doesn't have access code")
-
 		}
 	case USER:
 		{
+			// InputUser without AccessHash works for users who have interacted with the bot
+			// (server accepts min-constructors in that context).
 			usersInfo, err := client.api.UsersGetUsers(ctx, []tg.InputUserClass{&tg.InputUser{UserID: peerId}})
 			if err != nil {
 				return 0, err
@@ -160,7 +166,11 @@ func (client *MTProtoHelper) GetAccessHash(ctx context.Context, peerId int64) (h
 			for _, users := range usersInfo {
 				switch v := users.(type) {
 				case *tg.User:
-					return v.AccessHash, nil
+					hash, ok := v.GetAccessHash()
+					if !ok {
+						return 0, fmt.Errorf("user %d has no access hash", v.ID)
+					}
+					return hash, nil
 				default:
 					return 0, fmt.Errorf("unknow type of user %v", v.String())
 				}
@@ -176,7 +186,7 @@ func (client *MTProtoHelper) GetAccessHash(ctx context.Context, peerId int64) (h
 }
 
 func (client *MTProtoHelper) GetUser(ctx context.Context, uid int64) (user *MTprotoUser, err error) {
-
+	// InputUser without AccessHash works for users who have interacted with the bot.
 	userInfo, err := client.tg_client.API().UsersGetUsers(ctx, []tg.InputUserClass{&tg.InputUser{UserID: uid}})
 	if err != nil {
 		return nil, fmt.Errorf("can't get user %v", err)
@@ -185,15 +195,18 @@ func (client *MTProtoHelper) GetUser(ctx context.Context, uid int64) (user *MTpr
 		log.Printf("[GetUser] typeID=%v for userID=%d", userInfoItem.TypeID(), uid)
 		switch v := userInfoItem.(type) {
 		case *tg.User:
+			hash, ok := v.GetAccessHash()
+			if !ok {
+				return nil, fmt.Errorf("user %d has no access hash", v.ID)
+			}
 			user = &MTprotoUser{
 				UserId:     v.ID,
 				Username:   v.Username,
-				AccessHash: v.AccessHash,
+				AccessHash: hash,
 			}
 			return user, nil
 		default:
 			log.Printf("[GetUser] unexpected typeID=%v for userID=%d", userInfoItem.TypeID(), uid)
-
 		}
 	}
 	return nil, errors.New("the user is not found")
@@ -221,7 +234,6 @@ func (client *MTProtoHelper) GetUserByUsername(ctx context.Context, username str
 }
 
 func (client *MTProtoHelper) GetPeerByUsername(ctx context.Context, username string) (peer tg.InputPeerClass, err error) {
-
 	// var peer tg.InputPeerClass
 	usernameRequest := tg.ContactsResolveUsernameRequest{Username: username}
 	userInfo, err := client.api.ContactsResolveUsername(ctx, &usernameRequest)
@@ -264,10 +276,9 @@ func (client *MTProtoHelper) GetPeerByUsername(ctx context.Context, username str
 			AccessHash: dialog.AccessHash,
 		}
 	default:
-		return nil, fmt.Errorf("unexpected peer type %T", userInfo)
+		return nil, fmt.Errorf("unexpected peer type %T", userInfo.Peer)
 	}
 	return peer, nil
-
 }
 
 // UnbanUser removes all restrictions from a user in a channel.
@@ -287,7 +298,6 @@ func (client *MTProtoHelper) UnbanUser(ctx context.Context, chatID int64, chatHa
 }
 
 func (client *MTProtoHelper) BanUser(ctx context.Context, chatID int64, chatHash int64, username string) (result bool, err error) {
-
 	channel := &tg.InputChannel{ChannelID: -1000000000000 - chatID, AccessHash: chatHash}
 	peer, err := client.GetPeerByUsername(ctx, username)
 
