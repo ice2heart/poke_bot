@@ -341,12 +341,17 @@ func updateMessage(ctx context.Context, message *ChatMessage) {
 		bson.D{
 			{Key: "$set", Value: bson.D{
 				{Key: "text", Value: bson.D{
-					{Key: "$concat", Value: bson.A{
-						"$text", "\nEdit:\n", message.Text,
+					{Key: "$cond", Value: bson.D{
+						{Key: "if", Value: bson.D{
+							{Key: "$eq", Value: bson.A{"$text", message.Text}},
+						}},
+						{Key: "then", Value: "$text"},
+						{Key: "else", Value: bson.D{
+							{Key: "$concat", Value: bson.A{"$text", "\nEdit:\n", message.Text}},
+						}},
 					}},
 				}},
-			},
-			},
+			}},
 		},
 	}
 	_, err := chatMessages.UpdateMany(ctx, filter, updatePipeline)

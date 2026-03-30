@@ -451,7 +451,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 			if len(hiddenUrls) != 0 {
 				storedText = fmt.Sprintf("%s\n%s", storedText, strings.Join(hiddenUrls, "\n"))
 			}
-			updateMessage(ctx, &ChatMessage{
+			go updateMessage(ctx, &ChatMessage{
 				MessageID: int64(update.EditedMessage.ID),
 				ChatID:    update.EditedMessage.Chat.ID,
 				Text:      storedText,
