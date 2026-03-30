@@ -194,6 +194,94 @@ func TestCacheDeleteRace(t *testing.T) {
 	wg.Wait()
 }
 
+func TestCacheFilterTopN(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := New[int, int](ctx)
+
+	// Insert entries with a small delay so expiresAt differs.
+	for i := 1; i <= 5; i++ {
+		c.Set(i, i, time.Duration(i)*time.Second)
+	}
+
+	// Ask for top 3: should be the 3 with the highest expiresAt (i=5,4,3).
+	result := c.FilterTopN(func(k int) bool { return true }, 3)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(result))
+	}
+	if result[0] != 5 || result[1] != 4 || result[2] != 3 {
+		t.Errorf("expected [5 4 3], got %v", result)
+	}
+}
+
+func TestCacheFilterTopNFewerThanN(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := New[int, int](ctx)
+	c.Set(1, 10, time.Second)
+	c.Set(2, 20, time.Second)
+
+	result := c.FilterTopN(func(k int) bool { return true }, 10)
+	if len(result) != 2 {
+		t.Errorf("expected 2 results, got %d", len(result))
+	}
+}
+
+func TestCacheFilterTopNWithPredicate(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := New[int, int](ctx)
+	for i := 1; i <= 6; i++ {
+		c.Set(i, i, time.Duration(i)*time.Second)
+	}
+
+	// Only even keys.
+	result := c.FilterTopN(func(k int) bool { return k%2 == 0 }, 2)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result))
+	}
+	// Even keys with highest TTL are 6, 4.
+	if result[0] != 6 || result[1] != 4 {
+		t.Errorf("expected [6 4], got %v", result)
+	}
+}
+
+func TestCacheFilterTopNRace(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ttl := 50 * time.Millisecond
+	c := New[string, int](ctx)
+
+	var wg sync.WaitGroup
+	const numOps = 500
+
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numOps; i++ {
+			c.Set(strconv.Itoa(i), i, ttl)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numOps; i++ {
+			c.Get(strconv.Itoa(i))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numOps; i++ {
+			c.FilterTopN(func(k string) bool { return true }, 10)
+		}
+	}()
+
+	wg.Wait()
+}
+
 func TestCacheFilterRace(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

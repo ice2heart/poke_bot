@@ -5,6 +5,7 @@ package cache
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 )
@@ -81,6 +82,36 @@ func (c *Cache[K, V]) Filter(fn func(K) bool) []V {
 		if now.Before(e.expiresAt) && fn(k) {
 			result = append(result, e.value)
 		}
+	}
+	return result
+}
+
+// FilterTopN returns the n most recently set live entries whose key satisfies fn,
+// ordered from newest to oldest. If fewer than n entries match, all are returned.
+func (c *Cache[K, V]) FilterTopN(fn func(K) bool, n int) []V {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	type scored struct {
+		value     V
+		expiresAt time.Time
+	}
+	now := time.Now()
+	var matched []scored
+	for k, e := range c.data {
+		if now.Before(e.expiresAt) && fn(k) {
+			matched = append(matched, scored{value: e.value, expiresAt: e.expiresAt})
+		}
+	}
+	slices.SortFunc(matched, func(a, b scored) int {
+		return b.expiresAt.Compare(a.expiresAt)
+	})
+	if len(matched) > n {
+		matched = matched[:n]
+	}
+	result := make([]V, len(matched))
+	for i, m := range matched {
+		result[i] = m.value
 	}
 	return result
 }

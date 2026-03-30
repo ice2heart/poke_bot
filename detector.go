@@ -182,12 +182,14 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 	systemMessage(ctx, b, msg.Chat.ID, text, 5*60)
 }
 
+const likesTopN = 10
+
 func likesHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatID := update.Message.Chat.ID
 
-	entries := reactionCache.Filter(func(k reactionKey) bool {
+	entries := reactionCache.FilterTopN(func(k reactionKey) bool {
 		return k.chatID == chatID
-	})
+	}, likesTopN)
 
 	msgID := update.Message.ID
 
@@ -196,7 +198,7 @@ func likesHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		return
 	}
 
-	rows := make([]string, 0, len(entries)+2)
+	rows := make([]string, 0, len(entries)+1)
 	rows = append(rows, "@username \\| Имя \\| Реакция \\| Ссылка")
 	for _, e := range entries {
 		handle := escape(e.username)
