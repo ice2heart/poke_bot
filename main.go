@@ -34,7 +34,7 @@ var (
 	client *mtproto.MTProtoHelper
 
 	myID            string
-	linkRegex       *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+))`)
+	linkRegex       *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+)(?:\?comment=(\d+))?)`)
 	tgUserLinkRegex *regexp.Regexp = regexp.MustCompile(`^tg://user\?id=(\d+)$`)
 
 	sessionsMux sync.Mutex
@@ -189,6 +189,7 @@ func main() {
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/test", bot.MatchTypePrefix, testHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypePrefix, startHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/delete", bot.MatchTypePrefix, deleteMessageHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/set_channel", bot.MatchTypePrefix, setChannelHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/likes", bot.MatchTypePrefix, likesHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/best", bot.MatchTypePrefix, bestHandler)
 	log.Printf("[main] bot started as @%s userID=%d", me.Username, me.ID)
@@ -414,17 +415,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 				storedText = fmt.Sprintf("Photo, text:\n%s", update.Message.Caption)
 			}
 
-			hiddenUrls := make([]string, 0)
-			for _, v := range update.Message.CaptionEntities {
-				if len(v.URL) != 0 {
-					hiddenUrls = append(hiddenUrls, v.URL)
-				}
-			}
-			for _, v := range update.Message.Entities {
-				if len(v.URL) != 0 {
-					hiddenUrls = append(hiddenUrls, v.URL)
-				}
-			}
+			hiddenUrls := collectHiddenURLs(update.Message.CaptionEntities, update.Message.Entities)
 			if len(hiddenUrls) != 0 {
 				storedText = fmt.Sprintf("%s\n%s", storedText, strings.Join(hiddenUrls, "\n"))
 			}
@@ -456,17 +447,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 			if len(update.EditedMessage.Caption) != 0 {
 				storedText = fmt.Sprintf("Photo, text:\n%s", update.EditedMessage.Caption)
 			}
-			hiddenUrls := make([]string, 0)
-			for _, v := range update.EditedMessage.CaptionEntities {
-				if len(v.URL) != 0 {
-					hiddenUrls = append(hiddenUrls, v.URL)
-				}
-			}
-			for _, v := range update.EditedMessage.Entities {
-				if len(v.URL) != 0 {
-					hiddenUrls = append(hiddenUrls, v.URL)
-				}
-			}
+			hiddenUrls := collectHiddenURLs(update.EditedMessage.CaptionEntities, update.EditedMessage.Entities)
 			if len(hiddenUrls) != 0 {
 				storedText = fmt.Sprintf("%s\n%s", storedText, strings.Join(hiddenUrls, "\n"))
 			}
@@ -1215,6 +1196,56 @@ func newCache() *cacheEntity[int64, struct{}] {
 	return chatCache
 }
 
+// extractLinkedMessageIDs scans URL entities in text for Telegram message links
+// that belong to the given chat (matched by chatID or chatUsername) and returns
+// the referenced message IDs.
+func extractLinkedMessageIDs(entities []models.MessageEntity, text string, chatID int64, chatUsername string) []int {
+	var ids []int
+	for _, v := range entities {
+		if v.Type != models.MessageEntityTypeURL {
+			continue
+		}
+		entityText := text[v.Offset : v.Offset+v.Length]
+		log.Printf("[extractLinkedMessageIDs] processing URL entity in chatID=%d: %q", chatID, entityText)
+		for _, m := range linkRegex.FindAllStringSubmatch(entityText, -1) {
+			if m[1] == "" {
+				if m[2] != chatUsername {
+					log.Printf("[extractLinkedMessageIDs] link chat username mismatch: got %q expected %q in chatID=%d", m[2], chatUsername, chatID)
+					continue
+				}
+			} else {
+				parsedID, _ := strconv.ParseInt("-100"+m[2], 10, 64)
+				if chatID != parsedID {
+					log.Printf("[extractLinkedMessageIDs] link chatID mismatch: got %d expected %d", parsedID, chatID)
+					continue
+				}
+			}
+			pokeMessageID, err := strconv.ParseInt(m[3], 10, 64)
+			if err != nil {
+				log.Printf("[extractLinkedMessageIDs] corrupted messageID %q in URL entity chatID=%d", m[3], chatID)
+				continue
+			}
+			ids = append(ids, int(pokeMessageID))
+		}
+	}
+	return ids
+}
+
+// collectHiddenURLs returns all explicit URL values (text-link entities) from
+// the provided entity slices. Plain URL entities are not included as their URL
+// is already visible in the message text.
+func collectHiddenURLs(entitySlices ...[]models.MessageEntity) []string {
+	var urls []string
+	for _, entities := range entitySlices {
+		for _, v := range entities {
+			if len(v.URL) != 0 {
+				urls = append(urls, v.URL)
+			}
+		}
+	}
+	return urls
+}
+
 func deleteMessageHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	adminsMux.Lock()
 	chatAdmins := checkAdmins(ctx, b, update.Message.Chat.ID)
@@ -1229,35 +1260,64 @@ func deleteMessageHandler(ctx context.Context, b *bot.Bot, update *models.Update
 		return
 	}
 	chatId := update.Message.Chat.ID
-	for _, v := range update.Message.Entities {
-		if v.Type == models.MessageEntityTypeURL {
-			log.Printf("[deleteMessageHandler] processing URL entity in chatID=%d: %q", chatId, update.Message.Text[v.Offset:v.Offset+v.Length])
-			rxResult := linkRegex.FindAllStringSubmatch(update.Message.Text[v.Offset:v.Offset+v.Length], -1)
-			for i := range rxResult {
-				if rxResult[i][1] == "" {
-					linkUsername := rxResult[i][2]
-					if linkUsername != update.Message.Chat.Username {
-						log.Printf("[deleteMessageHandler] link chat username mismatch: got %q expected %q in chatID=%d", linkUsername, update.Message.Chat.Username, chatId)
-						continue
-					}
-				} else {
-					parsedID, _ := strconv.ParseInt("-100"+rxResult[i][2], 10, 64)
-					if chatId != parsedID {
-						log.Printf("[deleteMessageHandler] link chatID mismatch: got %d expected %d", parsedID, chatId)
-						continue
-					}
-				}
-				pokeMessageID, err := strconv.ParseInt(rxResult[i][3], 10, 64)
-				if err != nil {
-					log.Printf("[deleteMessageHandler] corrupted messageID %q in URL entity chatID=%d", rxResult[i][3], chatId)
-					continue
-				}
-				b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-					ChatID:    chatId,
-					MessageID: int(pokeMessageID),
-				})
-			}
-		}
-
+	for _, msgID := range extractLinkedMessageIDs(update.Message.Entities, update.Message.Text, chatId, update.Message.Chat.Username) {
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    chatId,
+			MessageID: msgID,
+		})
 	}
+}
+
+// setChannelHandler sets (or clears) the linked channel username for the current chat.
+// Usage: /set_channel @channelname  — to set
+//
+//	/set_channel            — to clear
+func setChannelHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	adminsMux.Lock()
+	chatAdmins := checkAdmins(ctx, b, update.Message.Chat.ID)
+	_, rep := chatAdmins[update.Message.From.ID]
+	adminsMux.Unlock()
+
+	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+		ChatID:    update.Message.Chat.ID,
+		MessageID: update.Message.ID,
+	})
+	if !rep {
+		return
+	}
+
+	parts := strings.SplitN(update.Message.Text, " ", 2)
+	var channelUsername string
+	if len(parts) == 2 {
+		channelUsername = strings.TrimPrefix(strings.TrimSpace(parts[1]), "@")
+	}
+
+	settingsMux.Lock()
+	chatSettings := getChatSettings(ctx, update.Message.Chat.ID)
+	chatSettings.LinkedChannelUsername = channelUsername
+	writeChatSettings(ctx, update.Message.Chat.ID, chatSettings)
+	settingsMux.Unlock()
+
+	log.Printf("[setChannelHandler] chatID=%d linkedChannelUsername=%q set by userID=%d",
+		update.Message.Chat.ID, channelUsername, update.Message.From.ID)
+
+	var message string
+	if channelUsername == "" {
+		message = "Привязанный канал удалён"
+	} else {
+		message = fmt.Sprintf("Привязанный канал установлен: @%s", channelUsername)
+	}
+	reply, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: update.Message.Chat.ID,
+		Text:   message,
+	})
+	if err != nil {
+		return
+	}
+	go delay(ctx, 10, func() {
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    reply.Chat.ID,
+			MessageID: reply.ID,
+		})
+	})
 }

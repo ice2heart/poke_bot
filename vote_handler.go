@@ -52,13 +52,14 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 			onPauseMessage(ctx, b, update.Message)
 			return
 		}
+		linkedChannelUsername := chatSettings.LinkedChannelUsername
 		settingsMux.Unlock()
 
 		if len(update.Message.Entities) == 0 || (len(update.Message.Entities) == 1 && update.Message.Entities[0].Type == models.MessageEntityTypeBotCommand) {
 			systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
 				escape(fmt.Sprintf(
-					"Укажите ссылку на сообщение или пользователя.\nПримеры:\n/%s https://t.me/c/1657123097/2854347\n/%s @username",
-					cfg.command, cfg.command,
+					"Укажите ссылку на сообщение или пользователя.\nПримеры:\n/%s https://t.me/c/1657123097/2854347\n/%s @username\n/%s https://t.me/channelname/123?comment=456",
+					cfg.command, cfg.command, cfg.command,
 				)), true, 30)
 		}
 
@@ -114,7 +115,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 					}
 					break
 				}
-				chatLinks := parseChatLink(rawURL, chatId, update.Message.Chat.Username)
+				chatLinks := parseChatLink(rawURL, chatId, update.Message.Chat.Username, linkedChannelUsername)
 				for _, chatLink := range chatLinks {
 					if chatLink.err != nil {
 						log.Printf("[%sHandler] failed to parse chat link in chatID=%d: %v",

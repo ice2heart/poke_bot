@@ -56,35 +56,47 @@ type ParsedLink struct {
 	err             error
 }
 
-func parseChatLink(link string, chatID int64, chatName string) (parsedLinks []ParsedLink) {
-	rxResult := linkRegex.FindAllStringSubmatch(link, -1)
+func parseChatLink(link string, chatID int64, chatName string, linkedChannelUsername string) (parsedLinks []ParsedLink) {
 	parsedLinks = []ParsedLink{}
-	var err error
-	for i := range rxResult {
-		parsedLink := ParsedLink{err: nil}
-		pokeMessageID := int64(0)
-		if rxResult[i][1] == "" {
-			linkUsername := rxResult[i][2]
-			if linkUsername != chatName {
-				parsedLink.err = fmt.Errorf("Chat Username is not match %s != %s\n", linkUsername, chatName)
-				goto Append
+	for _, m := range linkRegex.FindAllStringSubmatch(link, -1) {
+		parsedLink := ParsedLink{}
+
+		// Channel comment link: https://t.me/<channel>/postID?comment=msgID
+		// The comment value is the message ID in the linked discussion group.
+		if linkedChannelUsername != "" && m[1] == "" && m[2] == linkedChannelUsername && m[4] != "" {
+			msgID, err := strconv.ParseInt(m[4], 10, 64)
+			if err != nil {
+				parsedLink.err = fmt.Errorf("invalid comment ID %q: %w", m[4], err)
+			} else {
+				parsedLink.TargetMessageID = msgID
+				parsedLink.ChatID = chatID
 			}
-		} else {
-			parsedID, _ := strconv.ParseInt("-100"+rxResult[i][2], 10, 64)
-			if chatID != parsedID {
-				parsedLink.err = fmt.Errorf("Chat ID is not match %d != %d\n", parsedID, chatID)
-				goto Append
-			}
-		}
-		pokeMessageID, err = strconv.ParseInt(rxResult[i][3], 10, 64)
-		if err != nil {
-			parsedLink.err = err
-			goto Append
+			parsedLinks = append(parsedLinks, parsedLink)
+			continue
 		}
 
-		parsedLink.TargetMessageID = pokeMessageID
-		parsedLink.ChatID = chatID
-	Append:
+		// Standard direct-message link.
+		if m[1] == "" {
+			if m[2] != chatName {
+				parsedLink.err = fmt.Errorf("chat username mismatch: got %q want %q", m[2], chatName)
+				parsedLinks = append(parsedLinks, parsedLink)
+				continue
+			}
+		} else {
+			parsedID, _ := strconv.ParseInt("-100"+m[2], 10, 64)
+			if chatID != parsedID {
+				parsedLink.err = fmt.Errorf("chat ID mismatch: got %d want %d", parsedID, chatID)
+				parsedLinks = append(parsedLinks, parsedLink)
+				continue
+			}
+		}
+		msgID, err := strconv.ParseInt(m[3], 10, 64)
+		if err != nil {
+			parsedLink.err = err
+		} else {
+			parsedLink.TargetMessageID = msgID
+			parsedLink.ChatID = chatID
+		}
 		parsedLinks = append(parsedLinks, parsedLink)
 	}
 	return

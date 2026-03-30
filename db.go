@@ -69,12 +69,13 @@ type ScoreResult struct {
 }
 
 type DynamicSetting struct {
-	ChatID         int64
-	Pause          bool
-	LogRecipients  []int64
-	ChatName       string
-	ChatUsername   string
-	ChatAccessHash int64
+	ChatID                int64
+	Pause                 bool
+	LogRecipients         []int64
+	ChatName              string
+	ChatUsername          string
+	ChatAccessHash        int64
+	LinkedChannelUsername string
 }
 
 func initDb(ctx context.Context, connectionLine string, dbName string) {
