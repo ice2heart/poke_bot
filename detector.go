@@ -24,9 +24,10 @@ type reactionKey struct {
 }
 
 type reactionEntry struct {
-	userID   int64
-	username string
-	emoji    string
+	userID      int64
+	username    string
+	altUsername string
+	emoji       string
 }
 
 var reactionCache *cache.Cache[reactionKey, reactionEntry]
@@ -67,13 +68,15 @@ func processDetectorReaction(ctx context.Context, update *models.Update) {
 
 	// Ensure the reacting user exists in the users collection so they can be
 	// ban-targeted later.
+	var altUsername string
 	if resolved, err := resolveUser(ctx, userID); err == nil {
-		log.Printf("[detector] resolved userID=%d username=%q", userID, resolved.Username)
+		log.Printf("[detector] resolved userID=%d username=%q altUsername=%q", userID, resolved.Username, resolved.AltUsername)
 		username = resolved.Username
+		altUsername = resolved.AltUsername
 	} else {
 		log.Printf("[detector] resolveUser failed for userID=%d: %v; falling back to update data", userID, err)
 		if r.User != nil {
-			altUsername := strings.TrimSpace(r.User.FirstName + " " + r.User.LastName)
+			altUsername = strings.TrimSpace(r.User.FirstName + " " + r.User.LastName)
 			if err := ensureUser(ctx, userID, r.User.Username, altUsername); err != nil {
 				log.Printf("[detector] ensureUser fallback failed for userID=%d: %v", userID, err)
 			}
@@ -92,9 +95,10 @@ func processDetectorReaction(ctx context.Context, update *models.Update) {
 	})
 
 	reactionCache.Set(reactionKey{chatID: r.Chat.ID, userID: userID}, reactionEntry{
-		userID:   userID,
-		username: username,
-		emoji:    emoji,
+		userID:      userID,
+		username:    username,
+		altUsername: altUsername,
+		emoji:       emoji,
 	}, reactionTTL)
 }
 
@@ -182,21 +186,25 @@ func likesHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	msgID := update.Message.ID
 
 	if len(entries) == 0 {
-		systemAnswerToMessage(ctx, b, chatID, msgID, "Реакций пока нет", true)
+		systemAnswerToMessage(ctx, b, chatID, msgID, "Реакций пока нет", true, 30)
 		return
 	}
 
 	rows := make([]string, 0, len(entries)+2)
-	rows = append(rows, "Пользователь \\| Реакция \\| Ссылка")
+	rows = append(rows, "@username \\| Имя \\| Реакция \\| Ссылка")
 	for _, e := range entries {
-		name := e.username
-		if name == "" {
-			name = fmt.Sprintf("id%d", e.userID)
+		handle := escape(e.username)
+		if handle == "" {
+			handle = "—"
 		}
-		rows = append(rows, fmt.Sprintf("%s \\| %s \\| tg://user?id\\=%d", escape(name), e.emoji, e.userID))
+		displayName := escape(e.altUsername)
+		if displayName == "" {
+			displayName = "—"
+		}
+		rows = append(rows, fmt.Sprintf("%s \\| %s \\| %s \\| tg://user?id\\=%d", handle, displayName, e.emoji, e.userID))
 	}
 
-	systemAnswerToMessage(ctx, b, chatID, msgID, strings.Join(rows, "\n"), true)
+	systemAnswerToMessage(ctx, b, chatID, msgID, strings.Join(rows, "\n"), true, 5*60)
 }
 
 // detectorMiddleware feeds all message and edit updates into the detection goroutine.

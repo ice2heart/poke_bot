@@ -134,6 +134,66 @@ func TestCacheFilterExpired(t *testing.T) {
 	}
 }
 
+func TestCacheDelete(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := New[string, int](ctx)
+	c.Set("a", 1, time.Second)
+	c.Set("b", 2, time.Second)
+
+	c.Delete("a")
+
+	if _, ok := c.Get("a"); ok {
+		t.Error("expected key 'a' to be deleted")
+	}
+	if v, ok := c.Get("b"); !ok || v != 2 {
+		t.Errorf("expected key 'b' to remain, got ok=%v val=%d", ok, v)
+	}
+}
+
+func TestCacheDeleteNoop(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := New[string, int](ctx)
+	// deleting a non-existent key must not panic
+	c.Delete("missing")
+}
+
+func TestCacheDeleteRace(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ttl := 50 * time.Millisecond
+	c := New[string, int](ctx)
+
+	var wg sync.WaitGroup
+	const numOps = 500
+
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numOps; i++ {
+			c.Set(strconv.Itoa(i), i, ttl)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numOps; i++ {
+			c.Delete(strconv.Itoa(i))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numOps; i++ {
+			c.Get(strconv.Itoa(i))
+		}
+	}()
+
+	wg.Wait()
+}
+
 func TestCacheFilterRace(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

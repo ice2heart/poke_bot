@@ -59,7 +59,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 				escape(fmt.Sprintf(
 					"Укажите ссылку на сообщение или пользователя.\nПримеры:\n/%s https://t.me/c/1657123097/2854347\n/%s @username",
 					cfg.command, cfg.command,
-				)), true)
+				)), true, 30)
 		}
 
 		log.Printf("[%sHandler] new /%s from userID=%d in chatID=%d: %q",
@@ -94,12 +94,12 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 					log.Printf("[%sHandler] getByUsername failed for username=%q in chatID=%d: %v",
 						cfg.command, username, chatId, err)
 					systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
-						escape(fmt.Sprintf("Пользователь @%v не найден", username)), true)
+						escape(fmt.Sprintf("Пользователь @%v не найден", username)), true, 30)
 					continue
 				}
 
 			case models.MessageEntityTypeURL:
-				rawURL := update.Message.Text[v.Offset : v.Offset+v.Length]
+				rawURL := entityText(update.Message.Text, v.Offset, v.Length)
 				log.Printf("[%sHandler] processing URL entity in chatID=%d: %q", cfg.command, chatId, rawURL)
 				if m := tgUserLinkRegex.FindStringSubmatch(rawURL); m != nil {
 					userID, err := strconv.ParseInt(m[1], 10, 64)
@@ -124,7 +124,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 					banInfo, err = cfg.getByMessage(ctx, chatId, chatLink.TargetMessageID)
 					if err != nil {
 						systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
-							escape(fmt.Sprintf("Сообщение не найдено. Используйте альтернативный метод: /%s @username", cfg.command)), true)
+							escape(fmt.Sprintf("Сообщение не найдено. Используйте альтернативный метод: /%s @username", cfg.command)), true, 30)
 						continue
 					}
 					banInfo.TargetMessageID = chatLink.TargetMessageID
@@ -148,7 +148,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 				sessionsMux.Unlock()
 				if cached {
 					systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
-						"Пользователь уже был заблокирован недавно", true)
+						"Пользователь уже был заблокирован недавно", true, 30)
 					continue
 				}
 			}

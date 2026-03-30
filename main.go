@@ -526,7 +526,7 @@ func checkForDuplicates(ctx context.Context, chatId int64, userid int64, b *bot.
 		if messageSession.UserID != userid {
 			continue
 		}
-		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("[Голосование уже создано](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), responseMessage), true)
+		systemAnswerToMessage(ctx, b, chatId, update.Message.ID, fmt.Sprintf("[Голосование уже создано](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(chatId), responseMessage), true, 30)
 		return true
 	}
 
@@ -585,7 +585,7 @@ func makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 }
 
 func onPauseMessage(ctx context.Context, b *bot.Bot, message *models.Message) {
-	systemAnswerToMessage(ctx, b, message.Chat.ID, message.ID, fmt.Sprintf("[%s %s](tg://user?id=%d), бот в данный момент приостановлен", message.From.FirstName, message.From.LastName, message.From.ID), true)
+	systemAnswerToMessage(ctx, b, message.Chat.ID, message.ID, fmt.Sprintf("[%s %s](tg://user?id=%d), бот в данный момент приостановлен", message.From.FirstName, message.From.LastName, message.From.ID), true, 30)
 }
 
 func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
@@ -928,7 +928,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			writeChatSettings(ctx, data.ChatID, chatSettings)
 			settingsMux.Unlock()
 
-			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Режим паузы активирован", false)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Режим паузы активирован", false, 30)
 		}
 	case ACTION_UNPAUSE_CHAT:
 		{
@@ -944,7 +944,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			writeChatSettings(ctx, data.ChatID, chatSettings)
 			settingsMux.Unlock()
 
-			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Режим паузы деактивирован", false)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Режим паузы деактивирован", false, 30)
 		}
 	case ACTION_ENABLED_LOG:
 		{
@@ -958,7 +958,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			chatSettings := getChatSettings(ctx, data.ChatID)
 			if slices.Contains(chatSettings.LogRecipients, userID) {
 				settingsMux.Unlock()
-				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы уже в списке на получение отчётов", false)
+				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы уже в списке на получение отчётов", false, 30)
 				return
 			}
 			chatSettings.LogRecipients = append(chatSettings.LogRecipients, userID)
@@ -966,7 +966,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			writeChatSettings(ctx, data.ChatID, chatSettings)
 			settingsMux.Unlock()
 
-			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы добавлены в список на получение отчётов", false)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы добавлены в список на получение отчётов", false, 30)
 		}
 	case ACTION_DISABLED_LOG:
 		{
@@ -981,7 +981,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			index := slices.Index(chatSettings.LogRecipients, userID)
 			if index == -1 {
 				settingsMux.Unlock()
-				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы не состоите в списке получателей отчётов", false)
+				systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы не состоите в списке получателей отчётов", false, 30)
 				return
 			}
 			chatSettings.LogRecipients = slices.Delete(chatSettings.LogRecipients, index, index+1)
@@ -989,7 +989,7 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			writeChatSettings(ctx, data.ChatID, chatSettings)
 			settingsMux.Unlock()
 
-			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы удалены из списка получателей отчётов", false)
+			systemAnswerToMessage(ctx, b, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.ID, "Вы удалены из списка получателей отчётов", false, 30)
 
 		}
 	case ACTION_UNMUTE:

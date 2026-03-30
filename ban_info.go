@@ -241,5 +241,8 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 		}
 	}
 
+	if result {
+		reactionCache.Delete(reactionKey{chatID: s.ChatID, userID: s.UserID})
+	}
 	return result
 }

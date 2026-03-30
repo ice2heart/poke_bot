@@ -62,6 +62,13 @@ func (c *Cache[K, V]) Set(k K, v V, ttl time.Duration) {
 	}
 }
 
+// Delete removes the entry for k. It is a no-op if k is not present.
+func (c *Cache[K, V]) Delete(k K) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.data, k)
+}
+
 // Filter returns the values of all live entries whose key satisfies fn.
 // Expired entries are excluded even if the sweeper has not yet removed them.
 func (c *Cache[K, V]) Filter(fn func(K) bool) []V {
