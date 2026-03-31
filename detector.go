@@ -130,6 +130,9 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 		return
 	}
 	msg := update.EditedMessage
+	if msg == nil || msg.SenderTag != "" {
+		return
+	}
 
 	editDelaySec := msg.EditDate - msg.Date
 	if editDelaySec <= editLinkMinDelay {
