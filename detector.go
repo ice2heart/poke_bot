@@ -134,6 +134,23 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 		return
 	}
 
+	if msg.From != nil {
+		adminsMux.Lock()
+		chatAdmins := checkAdmins(ctx, b, msg.Chat.ID)
+		adminsMux.Unlock()
+		if _, isAdmin := chatAdmins[msg.From.ID]; isAdmin {
+			return
+		}
+	}
+
+	settingsMux.Lock()
+	chatSettings := getChatSettings(ctx, msg.Chat.ID)
+	settingsMux.Unlock()
+	if chatSettings.LinkedChannelUsername != "" && msg.SenderChat != nil &&
+		strings.EqualFold(msg.SenderChat.Username, chatSettings.LinkedChannelUsername) {
+		return
+	}
+
 	editDelaySec := msg.EditDate - msg.Date
 	if editDelaySec <= editLinkMinDelay {
 		return
