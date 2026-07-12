@@ -133,15 +133,10 @@ const CUSTOM_TAG_MAX_LENGTH = 16
 
 func setTagHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatID := update.Message.Chat.ID
-
-	// Like /delete: the command message is removed right away.
-	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    chatID,
-		MessageID: update.Message.ID,
-	})
+	messageID := update.Message.ID
 
 	if update.Message.SenderChat != nil {
-		systemMessage(ctx, b, chatID, escape("Команда недоступна для каналов."), 30)
+		systemAnswerToMessage(ctx, b, chatID, messageID, escape("Команда недоступна для каналов."), true, 30)
 		return
 	}
 	userID := update.Message.From.ID
@@ -149,7 +144,7 @@ func setTagHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	_, tag, _ := strings.Cut(update.Message.Text, " ")
 	tag = strings.TrimSpace(tag)
 	if utf8.RuneCountInString(tag) > CUSTOM_TAG_MAX_LENGTH {
-		systemMessage(ctx, b, chatID, escape(fmt.Sprintf("Слишком длинный тег, максимум %d символов.", CUSTOM_TAG_MAX_LENGTH)), 30)
+		systemAnswerToMessage(ctx, b, chatID, messageID, escape(fmt.Sprintf("Слишком длинный тег, максимум %d символов.", CUSTOM_TAG_MAX_LENGTH)), true, 30)
 		return
 	}
 
@@ -159,13 +154,13 @@ func setTagHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if score != nil {
 			rating = score.Rating
 		}
-		systemMessage(ctx, b, chatID, escape(fmt.Sprintf("Недостаточно рейтинга: %d. Необходимо больше %d.", rating, CUSTOM_TAG_MIN_RATING)), 30)
+		systemAnswerToMessage(ctx, b, chatID, messageID, escape(fmt.Sprintf("Недостаточно рейтинга: %d. Необходимо больше %d.", rating, CUSTOM_TAG_MIN_RATING)), true, 30)
 		return
 	}
 
 	if err := userSetCustomTag(ctx, userID, tag); err != nil {
 		zap.S().Infof("[setTagHandler] userSetCustomTag failed for userID=%d: %v", userID, err)
-		systemMessage(ctx, b, chatID, escape("Не удалось сохранить тег, попробуйте позже."), 30)
+		systemAnswerToMessage(ctx, b, chatID, messageID, escape("Не удалось сохранить тег, попробуйте позже."), true, 30)
 		return
 	}
 
@@ -185,5 +180,5 @@ func setTagHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if err != nil {
 		zap.S().Infof("[setTagHandler] SetChatMemberTag failed: userID=%d chatID=%d: %v", userID, chatID, err)
 	}
-	systemMessage(ctx, b, chatID, answer, 30)
+	systemAnswerToMessage(ctx, b, chatID, messageID, answer, true, 30)
 }
