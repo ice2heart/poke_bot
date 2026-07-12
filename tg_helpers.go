@@ -327,7 +327,7 @@ func unbanUser(ctx context.Context, b *bot.Bot, chatId int64, userId int64) (res
 		// Negative IDs are channels/sender chats — use UnbanChatSenderChat.
 		return b.UnbanChatSenderChat(ctx, &bot.UnbanChatSenderChatParams{
 			ChatID:       chatId,
-			SenderChatID: int(userId),
+			SenderChatID: userId,
 		})
 	}
 	return b.UnbanChatMember(ctx, &bot.UnbanChatMemberParams{
@@ -408,6 +408,10 @@ func updateUserFragTag(ctx context.Context, b *bot.Bot, chatID int64, ownerID in
 	user, err := getUser(ctx, ownerID)
 	if err != nil {
 		zap.S().Infof("[updateUserFragTag] getUser failed for userID=%d: %v", ownerID, err)
+		return
+	}
+	if user.CustomTag != "" {
+		zap.S().Infof("[updateUserFragTag] skipping tag update: userID=%d has custom tag", ownerID)
 		return
 	}
 	title := fmt.Sprintf("frags: %d", user.VoteCounter)

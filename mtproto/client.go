@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/gotd/contrib/bg"
+	"github.com/gotd/log/logzap"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
 	"go.uber.org/zap"
@@ -44,7 +45,7 @@ const (
 
 func (client *MTProtoHelper) Init(ctx context.Context) error {
 	var err error
-	client.tg_client = telegram.NewClient(int(client.AppId), client.AppHash, telegram.Options{Logger: client.Logger})
+	client.tg_client = telegram.NewClient(int(client.AppId), client.AppHash, telegram.Options{Logger: logzap.New(client.Logger)})
 	client.stop_fn, err = bg.Connect(client.tg_client)
 	if err != nil {
 		return err

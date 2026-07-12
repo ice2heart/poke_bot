@@ -33,7 +33,8 @@ var (
 // voteCounter - inc counter
 
 const (
-	VOTE_RATING_MULTIPLY = 10
+	VOTE_RATING_MULTIPLY  = 10
+	CUSTOM_TAG_MIN_RATING = 200
 )
 
 type UserRecord struct {
@@ -44,6 +45,7 @@ type UserRecord struct {
 	Username    string
 	AltUsername string
 	MuteCounter int
+	CustomTag   string
 }
 
 type ChatMessage struct {
@@ -263,6 +265,25 @@ func userMakeVote(ctx context.Context, uID int64, amount int) {
 	if err != nil {
 		zap.S().Infof("[userMakeVote] upsert failed for userID=%d amount=%d: %v", uID, amount, err)
 	}
+}
+
+// userSetCustomTag stores a user's custom chat tag; an empty tag removes it.
+func userSetCustomTag(ctx context.Context, uID int64, tag string) error {
+	filter := bson.D{
+		{Key: "uid", Value: uID},
+	}
+	var update bson.D
+	if tag == "" {
+		update = bson.D{
+			{Key: "$unset", Value: bson.D{{Key: "customTag", Value: ""}}},
+		}
+	} else {
+		update = bson.D{
+			{Key: "$set", Value: bson.D{{Key: "customTag", Value: tag}}},
+		}
+	}
+	_, err := usersCollection.UpdateOne(ctx, filter, update)
+	return err
 }
 
 func getRatingFromUserID(ctx context.Context, uID int64) (score *ScoreResult, err error) {
