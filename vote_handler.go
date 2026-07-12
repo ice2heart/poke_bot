@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"go.uber.org/zap"
 )
+
+var tgUserLinkRegex *regexp.Regexp = regexp.MustCompile(`^tg://user\?id=(\d+)$`)
 
 // voteHandlerConfig describes how to resolve targets and any ban-specific extras.
 type voteHandlerConfig struct {
