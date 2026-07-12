@@ -407,7 +407,7 @@ func isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, me
 	_, rep := chatAdmins[userID]
 	if !rep {
 		zap.S().Infof("[isUserAdmin] unauthorized admin action: userID=%d in chatID=%d", userID, chatID)
-		systemAnswerToMessage(ctx, b, messageChatID, messageID, "Недостаточно прав. Необходимо быть администратором чата.", true, 30)
+		systemAnswerToMessage(ctx, b, messageChatID, messageID, escape("Недостаточно прав. Необходимо быть администратором чата."), true, 30)
 		return false
 	}
 	return true
