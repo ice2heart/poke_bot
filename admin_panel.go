@@ -243,6 +243,40 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 			})
 
 		}
+	case ACTION_SHOW_VOTERS:
+		{
+			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {
+				return
+			}
+			msgIdRaw, ok := data.Data[DATA_TYPE_MSGID]
+			if !ok {
+				zap.S().Infof("[actionCallbackHandler] ACTION_SHOW_VOTERS: missing messageID in callback data, chatID=%d", data.ChatID)
+				return
+			}
+			voteMessageID := getInt(msgIdRaw)
+			zap.S().Infof("[actionCallbackHandler] ACTION_SHOW_VOTERS: chatID=%d voteMessageID=%d by userID=%d", data.ChatID, voteMessageID, update.CallbackQuery.From.ID)
+
+			text := "Информация о голосовании не найдена"
+			banInfo, err := getBanLogByVoteMessage(ctx, data.ChatID, voteMessageID)
+			if err == nil {
+				text = formatVotersReport(banInfo, func(uID int64) string {
+					return userTagByID(ctx, uID)
+				})
+			}
+			_, err = b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+				Text:      text,
+				ParseMode: models.ParseModeMarkdown,
+				ReplyParameters: &models.ReplyParameters{
+					ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+					MessageID: update.CallbackQuery.Message.Message.ID,
+				},
+				LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: bot.True()},
+			})
+			if err != nil {
+				zap.S().Infof("[actionCallbackHandler] ACTION_SHOW_VOTERS: SendMessage failed for chatID=%d: %v", data.ChatID, err)
+			}
+		}
 	case ACTION_LEAVE_CHAT:
 		{
 			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {

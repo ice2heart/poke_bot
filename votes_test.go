@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -100,6 +101,60 @@ func TestVoteVerdict(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, voteVerdict(tt.upvotes, tt.downvotes, tt.superPoke, tt.score))
+		})
+	}
+}
+
+func TestUserTag(t *testing.T) {
+	assert.Equal(t, "@someuser", userTag("someuser", "", 0))
+	assert.Equal(t, "@some\\_user", userTag("some_user", "", 0))
+	assert.Equal(t, "[John Smith](tg://user?id=42)", userTag("", "John Smith ", 42))
+}
+
+func TestFormatVotersReport(t *testing.T) {
+	tagFor := func(id int64) string { return fmt.Sprintf("u%d", id) }
+
+	tests := []struct {
+		name    string
+		banInfo *BanInfo
+		want    string
+	}{
+		{
+			name: "mixed votes sorted by user ID",
+			banInfo: &BanInfo{
+				UserName: "spammer",
+				Voters:   map[int64]int8{10: 1, 5: 1, 7: -1},
+			},
+			want: "Голосование по @spammer\nЗа \\(2\\):\nu5\nu10\nПротив \\(1\\):\nu7",
+		},
+		{
+			name: "only upvotes",
+			banInfo: &BanInfo{
+				UserName: "spammer",
+				Voters:   map[int64]int8{1: 1},
+			},
+			want: "Голосование по @spammer\nЗа \\(1\\):\nu1",
+		},
+		{
+			name: "no voters recorded",
+			banInfo: &BanInfo{
+				UserName: "spammer",
+			},
+			want: "Голосование по @spammer\nГолосов не зафиксировано",
+		},
+		{
+			name: "target without username uses profile link",
+			banInfo: &BanInfo{
+				ProfileName: "John Smith",
+				UserID:      42,
+				Voters:      map[int64]int8{3: -1},
+			},
+			want: "Голосование по [John Smith](tg://user?id=42)\nПротив \\(1\\):\nu3",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, formatVotersReport(tt.banInfo, tagFor))
 		})
 	}
 }

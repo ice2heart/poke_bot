@@ -233,7 +233,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 			ChatID:             v,
 			Text:               report,
 			ParseMode:          models.ParseModeMarkdown,
-			ReplyMarkup:        getBanMessageKeyboard(s.ChatID, s.UserID),
+			ReplyMarkup:        getBanMessageKeyboard(s.ChatID, s.UserID, s.VoteMessageID),
 			LinkPreviewOptions: disablePreview,
 		})
 		if err != nil {

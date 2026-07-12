@@ -149,6 +149,13 @@ func ensureIndexes(ctx context.Context) {
 		zap.S().Infof("[ensureIndexes] reactions.{chatid,userid} index: %v", err)
 	}
 
+	// ban_log: {chatid, votemessageid} — getBanLogByVoteMessage
+	if _, err := banLogs.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "chatid", Value: 1}, {Key: "votemessageid", Value: 1}},
+	}); err != nil {
+		zap.S().Infof("[ensureIndexes] ban_log.{chatid,votemessageid} index: %v", err)
+	}
+
 	// users: voteCounter descending — getTopUsersByVotes sort
 	if _, err := usersCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{{Key: "voteCounter", Value: -1}},
@@ -332,6 +339,33 @@ func getUser(ctx context.Context, uID int64) (*UserRecord, error) {
 	var user UserRecord
 	if err := result.Decode(&user); err != nil {
 		zap.S().Infof("[getUser] FindOne failed for userID=%d: %v", uID, err)
+		return nil, err
+	}
+	return &user, nil
+}
+
+// getBanLogByVoteMessage returns the logged BanInfo for a finished vote,
+// identified by the chat and the vote message that collected the votes.
+func getBanLogByVoteMessage(ctx context.Context, chatID int64, voteMessageID int64) (*BanInfo, error) {
+	filter := bson.D{
+		{Key: "chatid", Value: chatID},
+		{Key: "votemessageid", Value: voteMessageID},
+	}
+	opts := options.FindOne().SetSort(bson.D{{Key: "createdat", Value: -1}})
+	var banInfo BanInfo
+	if err := banLogs.FindOne(ctx, filter, opts).Decode(&banInfo); err != nil {
+		zap.S().Infof("[getBanLogByVoteMessage] FindOne failed for chatID=%d voteMessageID=%d: %v", chatID, voteMessageID, err)
+		return nil, err
+	}
+	return &banInfo, nil
+}
+
+// getUserByUsername returns the UserRecord for the given @username (case-insensitive).
+func getUserByUsername(ctx context.Context, username string) (*UserRecord, error) {
+	filter := bson.D{{Key: "username", Value: strings.ToLower(username)}}
+	var user UserRecord
+	if err := usersCollection.FindOne(ctx, filter).Decode(&user); err != nil {
+		zap.S().Infof("[getUserByUsername] FindOne failed for username=%q: %v", username, err)
 		return nil, err
 	}
 	return &user, nil

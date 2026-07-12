@@ -62,6 +62,73 @@ func bestHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 }
 
+// CHECK_LAST_MESSAGES is how many recent messages /check shows.
+const CHECK_LAST_MESSAGES = 5
+
+// formatCheckReport builds the MarkdownV2 summary for /check: the user's
+// rating breakdown and their most recent stored messages (newest first).
+func formatCheckReport(user *UserRecord, messages []ChatMessage) string {
+	rating := int(user.Counter + user.VoteCounter*VOTE_RATING_MULTIPLY)
+	lines := []string{
+		user.toClickableUsername(),
+		fmt.Sprintf("Рейтинг: %d \\(сообщений: %d, фрагов: %d\\)", rating, user.Counter, user.VoteCounter),
+	}
+	if user.MuteCounter > 0 {
+		lines = append(lines, fmt.Sprintf("Мутов: %d", user.MuteCounter))
+	}
+	if len(messages) > 0 {
+		lines = append(lines, "Последние сообщения:")
+		for _, m := range messages {
+			lines = append(lines, quoteText(firstN(m.Text, 200)))
+		}
+	}
+	return firstN(strings.Join(lines, "\n"), 3500)
+}
+
+// checkHandler serves the public /check command: shows a user's rating and
+// last messages. Target is given as @username or a text mention; without a
+// target it reports on the sender.
+func checkHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	chatID := update.Message.Chat.ID
+	messageID := update.Message.ID
+
+	var user *UserRecord
+	var err error
+	for _, v := range update.Message.Entities {
+		switch v.Type {
+		case models.MessageEntityTypeTextMention:
+			user, err = getUser(ctx, v.User.ID)
+		case models.MessageEntityTypeMention:
+			username := entityText(update.Message.Text, v.Offset+1, v.Length-1)
+			if username == myID {
+				continue
+			}
+			user, err = getUserByUsername(ctx, username)
+		default:
+			continue
+		}
+		break
+	}
+	if user == nil && err == nil {
+		// No target given — report on the sender.
+		userID := update.Message.From.ID
+		if update.Message.SenderChat != nil {
+			userID = update.Message.SenderChat.ID
+		}
+		user, err = getUser(ctx, userID)
+	}
+	if err != nil || user == nil {
+		systemAnswerToMessage(ctx, b, chatID, messageID, "Пользователь не найден", true, 30)
+		return
+	}
+
+	messages, err := getUserLastNthMessages(ctx, user.Uid, chatID, CHECK_LAST_MESSAGES)
+	if err != nil {
+		zap.S().Infof("[checkHandler] getUserLastNthMessages failed for userID=%d chatID=%d: %v", user.Uid, chatID, err)
+	}
+	systemAnswerToMessage(ctx, b, chatID, messageID, formatCheckReport(user, messages), true, 60)
+}
+
 const CUSTOM_TAG_MAX_LENGTH = 16
 
 func setTagHandler(ctx context.Context, b *bot.Bot, update *models.Update) {

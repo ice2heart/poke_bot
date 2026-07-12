@@ -161,7 +161,7 @@ func textOnlyUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 			ChatID:             v,
 			Text:               report,
 			ParseMode:          models.ParseModeMarkdown,
-			ReplyMarkup:        getMuteMessageKeyboard(s.ChatID, s.UserID),
+			ReplyMarkup:        getMuteMessageKeyboard(s.ChatID, s.UserID, s.VoteMessageID),
 			LinkPreviewOptions: disablePreview,
 		})
 		if err != nil {

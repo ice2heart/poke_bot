@@ -164,6 +164,7 @@ func main() {
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/likes", bot.MatchTypePrefix, likesHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/best", bot.MatchTypePrefix, bestHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/set_tag", bot.MatchTypePrefix, setTagHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/check", bot.MatchTypePrefix, checkHandler)
 	zap.S().Infof("[main] bot started as @%s userID=%d", me.Username, me.ID)
 	// each 12 hours update admins list
 	go ticker(ctx, 43200, getChatAdmins)

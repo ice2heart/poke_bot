@@ -85,7 +85,24 @@ func getVoteButtons(upvotes int, downvotes int, textType uint8) *models.InlineKe
 
 }
 
-func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMarkup {
+// showVotersButton builds the "who voted" button for a report keyboard, or
+// nil when the callback data cannot be marshaled.
+func showVotersButton(chatId int64, voteMessageId int64) []models.InlineKeyboardButton {
+	votersData, err := marshal(&Item{
+		Action: ACTION_SHOW_VOTERS,
+		ChatID: chatId,
+		Data:   map[uint8]interface{}{DATA_TYPE_MSGID: voteMessageId},
+	})
+	if err != nil {
+		zap.S().Infof("[showVotersButton] marshal error for chatID=%d voteMessageID=%d: %v", chatId, voteMessageId, err)
+		return nil
+	}
+	return []models.InlineKeyboardButton{
+		{Text: "Кто голосовал", CallbackData: fmt.Sprintf("b_%s", votersData)},
+	}
+}
+
+func getBanMessageKeyboard(chatId int64, userId int64, voteMessageId int64) *models.InlineKeyboardMarkup {
 	unbanData, err := marshal(&Item{
 		Action: ACTION_UNBAN,
 		ChatID: chatId,
@@ -99,16 +116,18 @@ func getBanMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMar
 		}
 	}
 
-	return &models.InlineKeyboardMarkup{
-		InlineKeyboard: [][]models.InlineKeyboardButton{
-			{
-				{Text: "Разблокировать", CallbackData: fmt.Sprintf("b_%s", unbanData)},
-			},
+	keyboard := [][]models.InlineKeyboardButton{
+		{
+			{Text: "Разблокировать", CallbackData: fmt.Sprintf("b_%s", unbanData)},
 		},
 	}
+	if votersRow := showVotersButton(chatId, voteMessageId); votersRow != nil {
+		keyboard = append(keyboard, votersRow)
+	}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: keyboard}
 }
 
-func getMuteMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMarkup {
+func getMuteMessageKeyboard(chatId int64, userId int64, voteMessageId int64) *models.InlineKeyboardMarkup {
 	unmuteData, err := marshal(&Item{
 		Action: ACTION_UNMUTE,
 		ChatID: chatId,
@@ -122,13 +141,15 @@ func getMuteMessageKeyboard(chatId int64, userId int64) *models.InlineKeyboardMa
 		}
 	}
 
-	return &models.InlineKeyboardMarkup{
-		InlineKeyboard: [][]models.InlineKeyboardButton{
-			{
-				{Text: "Снять мут", CallbackData: fmt.Sprintf("b_%s", unmuteData)},
-			},
+	keyboard := [][]models.InlineKeyboardButton{
+		{
+			{Text: "Снять мут", CallbackData: fmt.Sprintf("b_%s", unmuteData)},
 		},
 	}
+	if votersRow := showVotersButton(chatId, voteMessageId); votersRow != nil {
+		keyboard = append(keyboard, votersRow)
+	}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: keyboard}
 }
 
 func getChatListKeyboard(chatList []Chat) *models.InlineKeyboardMarkup {
@@ -423,6 +444,16 @@ func updateUserFragTag(ctx context.Context, b *bot.Bot, chatID int64, ownerID in
 	if err != nil {
 		zap.S().Infof("[updateUserFragTag] SetChatMemberTag failed: userID=%d chatID=%d: %v", ownerID, chatID, err)
 	}
+}
+
+// userTagByID resolves a clickable MarkdownV2 tag for a user ID, falling back
+// to a bare tg://user link when the user is not in the database.
+func userTagByID(ctx context.Context, uID int64) string {
+	user, err := getUser(ctx, uID)
+	if err != nil {
+		return fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", uID)
+	}
+	return user.toClickableUsername()
 }
 
 func (user *UserRecord) toClickableUsername() (username string) {

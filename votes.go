@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -258,16 +259,55 @@ func voteVerdict(upvotes, downvotes, superPoke int, score int16) int {
 	return 0
 }
 
+// userTag formats a clickable MarkdownV2 mention: @username when known,
+// otherwise the profile name as a tg://user link.
+func userTag(userName, profileName string, userID int64) string {
+	if userName == "" {
+		return fmt.Sprintf("[%s](tg://user?id=%d)", strings.TrimSpace(escape(profileName)), userID)
+	}
+	return fmt.Sprintf("@%s", escape(userName))
+}
+
 // voteExpiredText builds the MarkdownV2 announcement for an expired vote,
 // mentioning the user by @username or by a tg://user link when absent.
 func voteExpiredText(userName, profileName string, userID int64) string {
-	var username string
-	if userName == "" {
-		username = fmt.Sprintf("[%s](tg://user?id=%d)", strings.TrimSpace(escape(profileName)), userID)
-	} else {
-		username = fmt.Sprintf("@%s", escape(userName))
+	return fmt.Sprintf("Голосование истекло — необходимое количество голосов не набрано\\. %s", userTag(userName, profileName, userID))
+}
+
+// formatVotersReport builds the MarkdownV2 breakdown of a finished vote:
+// who voted for and against, in deterministic (ascending user ID) order.
+// tagFor resolves a voter ID to a clickable mention.
+func formatVotersReport(banInfo *BanInfo, tagFor func(int64) string) string {
+	lines := []string{fmt.Sprintf("Голосование по %s", userTag(banInfo.UserName, banInfo.ProfileName, banInfo.UserID))}
+
+	voterIDs := make([]int64, 0, len(banInfo.Voters))
+	for id := range banInfo.Voters {
+		voterIDs = append(voterIDs, id)
 	}
-	return fmt.Sprintf("Голосование истекло — необходимое количество голосов не набрано\\. %s", username)
+	slices.Sort(voterIDs)
+
+	var upvoters, downvoters []string
+	for _, id := range voterIDs {
+		if banInfo.Voters[id] == 1 {
+			upvoters = append(upvoters, tagFor(id))
+		} else {
+			downvoters = append(downvoters, tagFor(id))
+		}
+	}
+
+	if len(upvoters) == 0 && len(downvoters) == 0 {
+		lines = append(lines, "Голосов не зафиксировано")
+		return strings.Join(lines, "\n")
+	}
+	if len(upvoters) > 0 {
+		lines = append(lines, fmt.Sprintf("За \\(%d\\):", len(upvoters)))
+		lines = append(lines, upvoters...)
+	}
+	if len(downvoters) > 0 {
+		lines = append(lines, fmt.Sprintf("Против \\(%d\\):", len(downvoters)))
+		lines = append(lines, downvoters...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // expireVoteLocked removes one active vote: cancels the pending pin, deletes

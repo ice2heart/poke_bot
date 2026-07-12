@@ -26,10 +26,12 @@ const (
 	ACTION_DISABLED_LOG   uint8 = 8
 	ACTION_UNMUTE         uint8 = 9
 	ACTION_LEAVE_CHAT     uint8 = 10
+	ACTION_SHOW_VOTERS    uint8 = 11
 )
 
 const (
 	DATA_TYPE_USERID uint8 = 1
+	DATA_TYPE_MSGID  uint8 = 2
 )
 
 func getInt(data any) int64 {
