@@ -149,9 +149,9 @@ func ensureIndexes(ctx context.Context) {
 		zap.S().Infof("[ensureIndexes] reactions.{chatid,userid} index: %v", err)
 	}
 
-	// ban_log: {chatid, votemessageid} — getBanLogByVoteMessage
+	// ban_log: {chatid, votemessageid, createdat} — getBanLogByVoteMessage (filter + sort)
 	if _, err := banLogs.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.D{{Key: "chatid", Value: 1}, {Key: "votemessageid", Value: 1}},
+		Keys: bson.D{{Key: "chatid", Value: 1}, {Key: "votemessageid", Value: 1}, {Key: "createdat", Value: -1}},
 	}); err != nil {
 		zap.S().Infof("[ensureIndexes] ban_log.{chatid,votemessageid} index: %v", err)
 	}
@@ -409,9 +409,9 @@ func updateMessage(ctx context.Context, message *ChatMessage) {
 			}},
 		},
 	}
-	_, err := chatMessages.UpdateMany(ctx, filter, updatePipeline)
+	_, err := chatMessages.UpdateOne(ctx, filter, updatePipeline)
 	if err != nil {
-		zap.S().Infof("[updateMessage] UpdateMany failed for messageID=%d chatID=%d: %v", message.MessageID, message.ChatID, err)
+		zap.S().Infof("[updateMessage] UpdateOne failed for messageID=%d chatID=%d: %v", message.MessageID, message.ChatID, err)
 		return
 	}
 }
