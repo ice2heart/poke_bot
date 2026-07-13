@@ -86,9 +86,9 @@ func (c *Cache[K, V]) Filter(fn func(K) bool) []V {
 	return result
 }
 
-// FilterTopN returns the n most recently set live entries whose key satisfies fn,
-// ordered from newest to oldest. If fewer than n entries match, all are returned.
-func (c *Cache[K, V]) FilterTopN(fn func(K) bool, n int) []V {
+// FilterSorted returns all live entries whose key satisfies fn, ordered from
+// most to least recently set.
+func (c *Cache[K, V]) FilterSorted(fn func(K) bool) []V {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -106,14 +106,21 @@ func (c *Cache[K, V]) FilterTopN(fn func(K) bool, n int) []V {
 	slices.SortFunc(matched, func(a, b scored) int {
 		return b.expiresAt.Compare(a.expiresAt)
 	})
-	if len(matched) > n {
-		matched = matched[:n]
-	}
 	result := make([]V, len(matched))
 	for i, m := range matched {
 		result[i] = m.value
 	}
 	return result
+}
+
+// FilterTopN returns the n most recently set live entries whose key satisfies fn,
+// ordered from newest to oldest. If fewer than n entries match, all are returned.
+func (c *Cache[K, V]) FilterTopN(fn func(K) bool, n int) []V {
+	matched := c.FilterSorted(fn)
+	if len(matched) > n {
+		matched = matched[:n]
+	}
+	return matched
 }
 
 // sweep periodically removes entries that have passed their expiry deadline.

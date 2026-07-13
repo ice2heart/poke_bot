@@ -27,11 +27,13 @@ const (
 	ACTION_UNMUTE         uint8 = 9
 	ACTION_LEAVE_CHAT     uint8 = 10
 	ACTION_SHOW_VOTERS    uint8 = 11
+	ACTION_LIKES_PAGE     uint8 = 12
 )
 
 const (
 	DATA_TYPE_USERID uint8 = 1
 	DATA_TYPE_MSGID  uint8 = 2
+	DATA_TYPE_PAGE   uint8 = 3
 )
 
 func getInt(data any) int64 {

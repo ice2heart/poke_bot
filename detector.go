@@ -204,23 +204,34 @@ func processDetectorEdit(ctx context.Context, b *bot.Bot, update *models.Update)
 
 const likesTopN = 10
 
-func likesHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
-	chatID := update.Message.Chat.ID
-
-	entries := reactionCache.FilterTopN(func(k reactionKey) bool {
+// renderLikesPage builds the text and nav keyboard for one page of the
+// reaction leaderboard. page is 0-indexed.
+func renderLikesPage(ctx context.Context, chatID int64, page int) (text string, kb *models.InlineKeyboardMarkup) {
+	entries := reactionCache.FilterSorted(func(k reactionKey) bool {
 		return k.chatID == chatID
-	}, likesTopN)
-
-	msgID := update.Message.ID
+	})
 
 	if len(entries) == 0 {
-		systemAnswerToMessage(ctx, b, chatID, msgID, "Реакций пока нет", true, 30)
-		return
+		return "Реакций пока нет", nil
 	}
 
-	rows := make([]string, 0, len(entries)+1)
-	rows = append(rows, "@username \\| Имя \\| Реакция \\| Ссылка")
-	for _, e := range entries {
+	pageCount := (len(entries) + likesTopN - 1) / likesTopN
+	if page < 0 {
+		page = 0
+	}
+	if page > pageCount-1 {
+		page = pageCount - 1
+	}
+
+	start := page * likesTopN
+	end := start + likesTopN
+	if end > len(entries) {
+		end = len(entries)
+	}
+
+	rows := make([]string, 0, end-start+1)
+	rows = append(rows, "@username \\| Имя \\| Реакция \\| Сообщений \\| Ссылка")
+	for _, e := range entries[start:end] {
 		handle := escape(e.username)
 		if handle == "" {
 			handle = "—"
@@ -229,10 +240,47 @@ func likesHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if displayName == "" {
 			displayName = "—"
 		}
-		rows = append(rows, fmt.Sprintf("%s \\| %s \\| %s \\| tg://user?id\\=%d", handle, displayName, e.emoji, e.userID))
+		messageCount := "—"
+		if user, err := getUser(ctx, e.userID); err == nil {
+			messageCount = fmt.Sprintf("%d", user.Counter)
+		}
+		rows = append(rows, fmt.Sprintf("%s \\| %s \\| %s \\| %s \\| tg://user?id\\=%d", handle, displayName, e.emoji, messageCount, e.userID))
 	}
+	rows = append(rows, fmt.Sprintf("Страница %d/%d", page+1, pageCount))
 
-	systemAnswerToMessage(ctx, b, chatID, msgID, strings.Join(rows, "\n"), true, 5*60)
+	text = strings.Join(rows, "\n")
+	kb = getLikesKeyboard(chatID, page, page > 0, page < pageCount-1)
+	return text, kb
+}
+
+func likesHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	chatID := update.Message.Chat.ID
+	msgID := update.Message.ID
+
+	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+		ChatID:    chatID,
+		MessageID: msgID,
+	})
+
+	text, kb := renderLikesPage(ctx, chatID, 0)
+
+	sent, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID:      chatID,
+		Text:        text,
+		ParseMode:   models.ParseModeMarkdown,
+		ReplyMarkup: kb,
+	})
+	if err != nil {
+		zap.S().Infof("[likesHandler] SendMessage failed chatID=%d: %v", chatID, err)
+		return
+	}
+	sentID := sent.ID
+	go delay(ctx, 5*60, func() {
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    chatID,
+			MessageID: sentID,
+		})
+	})
 }
 
 // detectorMiddleware feeds all message and edit updates into the detection goroutine.

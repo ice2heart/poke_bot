@@ -126,6 +126,7 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 	var banUsertag string
 
 	cacheBanInfo(s.ChatID, s.UserID)
+	reactionCache.Delete(reactionKey{chatID: s.ChatID, userID: s.UserID})
 
 	if len(s.UserName) != 0 {
 		banUsertag = fmt.Sprintf("@%s", escape(s.UserName))

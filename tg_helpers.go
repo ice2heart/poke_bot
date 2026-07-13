@@ -256,6 +256,41 @@ func getChatActionsKeyboard(chatID int64) *models.InlineKeyboardMarkup {
 
 }
 
+// getLikesKeyboard builds the prev/next navigation row for a paginated
+// /likes page. hasPrev/hasNext control which buttons are shown.
+func getLikesKeyboard(chatID int64, page int, hasPrev bool, hasNext bool) *models.InlineKeyboardMarkup {
+	var row []models.InlineKeyboardButton
+
+	if hasPrev {
+		prevData, err := marshal(&Item{
+			Action: ACTION_LIKES_PAGE,
+			ChatID: chatID,
+			Data:   map[uint8]interface{}{DATA_TYPE_PAGE: page - 1},
+		})
+		if err != nil {
+			zap.S().Infof("[getLikesKeyboard] marshal error for prev button chatID=%d page=%d: %v", chatID, page-1, err)
+		} else {
+			row = append(row, models.InlineKeyboardButton{Text: "◀ Пред", CallbackData: fmt.Sprintf("b_%s", prevData)})
+		}
+	}
+	if hasNext {
+		nextData, err := marshal(&Item{
+			Action: ACTION_LIKES_PAGE,
+			ChatID: chatID,
+			Data:   map[uint8]interface{}{DATA_TYPE_PAGE: page + 1},
+		})
+		if err != nil {
+			zap.S().Infof("[getLikesKeyboard] marshal error for next button chatID=%d page=%d: %v", chatID, page+1, err)
+		} else {
+			row = append(row, models.InlineKeyboardButton{Text: "След ▶", CallbackData: fmt.Sprintf("b_%s", nextData)})
+		}
+	}
+	if len(row) == 0 {
+		return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{}}
+	}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{row}}
+}
+
 func getChatName(ctx context.Context, b *bot.Bot, chatID int64) string {
 	// TODO: make it cacheable
 	chatInfo, err := b.GetChat(ctx, &bot.GetChatParams{

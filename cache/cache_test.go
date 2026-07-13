@@ -194,6 +194,51 @@ func TestCacheDeleteRace(t *testing.T) {
 	wg.Wait()
 }
 
+func TestCacheFilterSorted(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := New[int, int](ctx)
+	for i := 1; i <= 5; i++ {
+		c.Set(i, i, time.Duration(i)*time.Second)
+	}
+
+	result := c.FilterSorted(func(k int) bool { return true })
+	if len(result) != 5 {
+		t.Fatalf("expected 5 results, got %d", len(result))
+	}
+	expected := []int{5, 4, 3, 2, 1}
+	for i, v := range expected {
+		if result[i] != v {
+			t.Errorf("expected %v, got %v", expected, result)
+			break
+		}
+	}
+}
+
+func TestCacheFilterSortedPagination(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := New[int, int](ctx)
+	for i := 1; i <= 12; i++ {
+		c.Set(i, i, time.Duration(i)*time.Second)
+	}
+
+	all := c.FilterSorted(func(k int) bool { return true })
+	pageSize := 10
+
+	page0 := all[:pageSize]
+	page1 := all[pageSize:]
+
+	if len(page0) != 10 || len(page1) != 2 {
+		t.Fatalf("expected page sizes 10/2, got %d/%d", len(page0), len(page1))
+	}
+	if page0[0] != 12 || page1[len(page1)-1] != 1 {
+		t.Errorf("unexpected pagination order: page0=%v page1=%v", page0, page1)
+	}
+}
+
 func TestCacheFilterTopN(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

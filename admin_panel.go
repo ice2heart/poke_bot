@@ -277,6 +277,28 @@ func actionCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 				zap.S().Infof("[actionCallbackHandler] ACTION_SHOW_VOTERS: SendMessage failed for chatID=%d: %v", data.ChatID, err)
 			}
 		}
+	case ACTION_LIKES_PAGE:
+		{
+			pageRaw, ok := data.Data[DATA_TYPE_PAGE]
+			if !ok {
+				zap.S().Infof("[actionCallbackHandler] ACTION_LIKES_PAGE: missing page in callback data, chatID=%d", data.ChatID)
+				return
+			}
+			page := int(getInt(pageRaw))
+			zap.S().Infof("[actionCallbackHandler] ACTION_LIKES_PAGE: chatID=%d page=%d by userID=%d", data.ChatID, page, update.CallbackQuery.From.ID)
+
+			text, kb := renderLikesPage(ctx, data.ChatID, page)
+			_, err := b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID:   update.CallbackQuery.Message.Message.ID,
+				Text:        text,
+				ParseMode:   models.ParseModeMarkdown,
+				ReplyMarkup: kb,
+			})
+			if err != nil {
+				zap.S().Infof("[actionCallbackHandler] ACTION_LIKES_PAGE: EditMessageText failed: %v", err)
+			}
+		}
 	case ACTION_LEAVE_CHAT:
 		{
 			if !isUserAdmin(ctx, b, data.ChatID, update.CallbackQuery.From.ID, update.CallbackQuery.Message.Message.Chat.ID, update.CallbackQuery.Message.Message.ID) {
