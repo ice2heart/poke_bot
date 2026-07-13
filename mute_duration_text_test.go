@@ -175,8 +175,8 @@ func TestGetMuteDurationText(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := getMuteDurationTextFromDays(tt.muteDays); !assert.Equal(t, got, tt.want) {
-				t.Errorf("getMuteDurationText() = %v, want %v", got, tt.want)
+			if got := restrictionDurationTextFromDays(tt.muteDays); !assert.Equal(t, got, tt.want) {
+				t.Errorf("restrictionDurationText() = %v, want %v", got, tt.want)
 			}
 		})
 	}

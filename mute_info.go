@@ -3,10 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -14,66 +10,23 @@ import (
 )
 
 func makeMuteMessage(b *BanInfo) string {
-	text := b.LastMessage
-	if len(text) > 200 {
-		text = firstN(text, 200)
-	}
-	text = quoteText(text)
-
-	var username string
-	if b.UserName == "" {
-		username = fmt.Sprintf("[%s](tg://user?id=%d)", strings.TrimSpace(escape(b.ProfileName)), b.UserID)
-	} else {
-		username = fmt.Sprintf("@%s", escape(b.UserName))
-	}
-	messageLink := ""
-	if b.TargetMessageID != 0 {
-		messageLink = fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
-	}
-
-	return fmt.Sprintf("Голосование за мут %s\nДля решения необходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
+	return makeVoteText(b, "мут")
 }
 
 func getMuteInfoByUserID(ctx context.Context, chatID int64, userID int64) (*BanInfo, error) {
-	banInfo := prepareBanInfo(ctx, chatID, userID)
-	banInfo.Type = MUTE
-	banInfo.BanMessage = makeMuteMessage(banInfo)
-	return banInfo, nil
+	return getInfoByUserID(ctx, chatID, userID, MUTE, makeMuteMessage)
 }
 
-func getMuteInfoByUser(ctx context.Context, chatID int64, username string) (banInfo *BanInfo, err error) {
+func getMuteInfoByUser(ctx context.Context, chatID int64, username string) (*BanInfo, error) {
 	user, err := getRatingFromUsername(ctx, username)
 	if err != nil {
 		return nil, err
 	}
 	return getMuteInfoByUserID(ctx, chatID, user.Userid)
-
 }
 
-func getMuteInfo(ctx context.Context, chatID int64, messageID int64) (banInfo *BanInfo, err error) {
-	banInfo = &BanInfo{
-		ChatID:          chatID,
-		TargetMessageID: messageID,
-		Type:            MUTE,
-	}
-	chatMessage, err := getMessageInfo(ctx, chatID, messageID)
-	if err != nil {
-		return nil, err
-	}
-	banInfo.UserName = chatMessage.UserName
-	banInfo.LastMessage = chatMessage.Text
-	banInfo.UserID = chatMessage.UserID
-	user, err := getUser(ctx, banInfo.UserID)
-	if err != nil {
-		return nil, err
-	}
-	if user.AltUsername != "" {
-		banInfo.ProfileName = user.AltUsername
-	}
-	banInfo.Score = calculateRequiredRating(user.Counter)
-	banInfo.BanMessage = makeMuteMessage(banInfo)
-	return banInfo, nil
-
+func getMuteInfo(ctx context.Context, chatID int64, messageID int64) (*BanInfo, error) {
+	return getInfoByMessage(ctx, chatID, messageID, MUTE, makeMuteMessage)
 }
 
 func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
@@ -90,11 +43,11 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 		banUsertag = fmt.Sprintf("[Пользователь вне базы](tg://user?id=%d)", s.UserID)
 	}
 
-	zap.S().Infof("[muteUser] restricting: userID=%d chatID=%d duration=%d days", s.UserID, s.ChatID, getMuteDurationInDays(userRecord))
+	zap.S().Infof("[muteUser] restricting: userID=%d chatID=%d duration=%d days", s.UserID, s.ChatID, restrictionDurationInDays(userRecord))
 	result, err := b.RestrictChatMember(ctx, &bot.RestrictChatMemberParams{
 		ChatID:    s.ChatID,
 		UserID:    s.UserID,
-		UntilDate: getMuteDuration(userRecord),
+		UntilDate: restrictionUntilDate(userRecord),
 		Permissions: &models.ChatPermissions{
 			CanSendOtherMessages:  false,
 			CanAddWebPagePreviews: false,
@@ -114,84 +67,26 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 		}
 	}
 
-	// Delete the vote message and the vote request concurrently.
-	var delWg sync.WaitGroup
-	for _, id := range []int64{s.VoteMessageID, s.RequestMessageID} {
-		if id == 0 {
-			continue
-		}
-		delWg.Add(1)
-		go func(id int64) {
-			defer delWg.Done()
-			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-				ChatID:    s.ChatID,
-				MessageID: int(id),
-			})
-		}(id)
-	}
-	delWg.Wait()
+	deleteMessagesConcurrently(ctx, b, s.ChatID, []int64{s.VoteMessageID, s.RequestMessageID}, "muteUser")
 
-	resultText := fmt.Sprintf("Мут выдан на %s", getMuteDurationText(userRecord))
+	resultText := fmt.Sprintf("Мут выдан на %s", restrictionDurationText(userRecord))
 	if !result {
 		resultText = "Не удалось выдать мут"
 	}
-	maker, err := getUser(ctx, s.OwnerID)
-	ownerInfo := ""
-	if err == nil {
-		ownerInfo = fmt.Sprintf("Инициатор голосования: %s", maker.toClickableUsername())
-	}
+	report := buildModerationReport(ctx, s.ChatID, s.OwnerID, resultText, banUsertag)
 
-	chatName := escape(getChatNameFromSettings(s.ChatID))
-
-	report := fmt.Sprintf("%s\n%s %s\n%s", chatName, resultText, banUsertag, ownerInfo)
-
-	userMessages, err := getUserLastNthMessages(ctx, s.UserID, s.ChatID, 20)
-	messageIDs := make([]int, len(userMessages))
-
-	if err == nil && len(userMessages) > 0 {
-
-		text := make([]string, 0, len(userMessages))
-		for i, v := range userMessages {
-			messageIDs[i] = int(v.MessageID)
-			text = append(text, quoteText(v.Text))
-		}
-		escapedText := strings.Join(text, "\n")
-		escapedText = firstN(escapedText, 3500)
-		report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
-	}
-	// log.Println(report)
+	userMessages, _ := getUserLastNthMessages(ctx, s.UserID, s.ChatID, 20)
+	report, _ = appendRecentMessages(report, userMessages)
 
 	pushBanLog(ctx, s)
-	disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
-
-	settingsMux.Lock()
-	chatSettings := getChatSettings(ctx, s.ChatID)
-
-	keyboard := getMuteMessageKeyboard(s.ChatID, s.UserID, s.VoteMessageID)
-	var sendWg sync.WaitGroup
-	for _, v := range chatSettings.LogRecipients {
-		sendWg.Add(1)
-		go func(recipientID int64) {
-			defer sendWg.Done()
-			if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID:             recipientID,
-				Text:               report,
-				ParseMode:          models.ParseModeMarkdown,
-				ReplyMarkup:        keyboard,
-				LinkPreviewOptions: disablePreview,
-			}); err != nil {
-				zap.S().Infof("[muteUser] can't send report to recipientID=%d: %v", recipientID, err)
-			}
-		}(v)
-	}
-	sendWg.Wait()
-	settingsMux.Unlock()
+	sendReportToRecipients(ctx, b, s.ChatID, report,
+		getMuteMessageKeyboard(s.ChatID, s.UserID, s.VoteMessageID), "muteUser")
 
 	if result {
 		// do not notify if you failed
 		params := &bot.SendMessageParams{
 			ChatID:    s.ChatID,
-			Text:      escape(fmt.Sprintf("Вам выдан мут на %s. Надеемся на понимание.", getMuteDurationText(userRecord))),
+			Text:      escape(fmt.Sprintf("Вам выдан мут на %s. Надеемся на понимание.", restrictionDurationText(userRecord))),
 			ParseMode: models.ParseModeMarkdown,
 		}
 		if s.TargetMessageID != 0 {
@@ -209,30 +104,4 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 	}
 
 	return result
-}
-
-func getMuteDurationInDays(user UserRecord) int {
-	return 1 + int(math.Round(math.Log2(float64(user.MuteCounter+1))))
-}
-func getMuteDuration(user UserRecord) int {
-	currentTime := int(time.Now().Unix())
-	return currentTime + 86400*(getMuteDurationInDays(user))
-}
-
-func getMuteDurationTextFromDays(muteDurationInDays int) (muteDuration string) {
-	if muteDurationInDays == 1 {
-		muteDuration = "сутки"
-	} else if muteDurationInDays%10 == 1 && muteDurationInDays >= 20 {
-		muteDuration = fmt.Sprintf("%d день", muteDurationInDays)
-	} else if (muteDurationInDays > 20 && muteDurationInDays%10 >= 5) || ((muteDurationInDays >= 5) && (muteDurationInDays <= 20)) || (muteDurationInDays > 20 && muteDurationInDays%10 == 0) {
-		muteDuration = fmt.Sprintf("%d дней", muteDurationInDays)
-	} else if muteDurationInDays < 5 || (muteDurationInDays > 20 && muteDurationInDays%10 < 5) {
-		muteDuration = fmt.Sprintf("%d дня", muteDurationInDays)
-	}
-	return
-}
-
-func getMuteDurationText(user UserRecord) string {
-	muteDurationInDays := getMuteDurationInDays(user)
-	return getMuteDurationTextFromDays(muteDurationInDays)
 }
