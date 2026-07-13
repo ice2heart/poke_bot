@@ -116,21 +116,32 @@ func voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		return
 	}
 
-	sessionsMux.Lock()
-	defer sessionsMux.Unlock()
+	var action func()
 
+	sessionsMux.Lock()
 	s, chatSession, superPoke, ok := parseVoteSession(ctx, b, update)
 	if !ok {
+		sessionsMux.Unlock()
 		return
 	}
 
 	if s.OwnerID == update.CallbackQuery.From.ID && superPoke == 0 {
 		zap.S().Infof("[voteCallbackHandler] userID=%d attempted to vote on their own poll in chatID=%d", update.CallbackQuery.From.ID, s.ChatID)
+		sessionsMux.Unlock()
 		answer = ANSWER_OWN
 		return
 	}
 
-	answer = handleVote(ctx, b, update, s, chatSession, superPoke)
+	answer, action = handleVote(ctx, b, update, s, chatSession, superPoke)
+	sessionsMux.Unlock()
+
+	// action performs the network I/O for a decided vote (ban/mute/expire).
+	// It is run after releasing sessionsMux so slow Telegram round-trips do
+	// not block voting in other chats, and to avoid holding sessionsMux while
+	// the moderation actions acquire settingsMux.
+	if action != nil {
+		action()
+	}
 }
 
 // parseVoteSession looks up the active BanInfo session for the incoming callback.
@@ -170,10 +181,15 @@ func parseVoteSession(ctx context.Context, b *bot.Bot, update *models.Update) (s
 	return s, chatSession, superPoke, true
 }
 
-// handleVote records the vote, tallies the result, and dispatches the outcome.
-// Returns the answer message to send back to the voter.
-// Caller must hold sessionsMux.
-func handleVote(ctx context.Context, b *bot.Bot, update *models.Update, s *BanInfo, chatSession map[int64]*BanInfo, superPoke int) string {
+// handleVote records the vote and tallies the result. It performs the session
+// state mutations that require sessionsMux (recording the vote, deleting a
+// decided session) and returns the answer for the voter plus an optional
+// action closure holding the network I/O for a decided vote.
+//
+// The caller must hold sessionsMux while calling handleVote, then release it
+// and run the returned action (if non-nil) so slow Telegram round-trips and the
+// moderation actions' settingsMux usage do not happen under sessionsMux.
+func handleVote(ctx context.Context, b *bot.Bot, update *models.Update, s *BanInfo, chatSession map[int64]*BanInfo, superPoke int) (string, func()) {
 	isDownvote := update.CallbackQuery.Data == "button_downvote"
 	zap.S().Infof("[handleVote] userID=%d chatID=%d type=%d superPoke=%d isDownvote=%v voters=%d score=%d",
 		update.CallbackQuery.From.ID, s.ChatID, s.Type, superPoke, isDownvote, len(s.Voters), s.Score)
@@ -199,40 +215,45 @@ func handleVote(ctx context.Context, b *bot.Bot, update *models.Update, s *BanIn
 
 	switch voteVerdict(upvotes, downvotes, superPoke, s.Score) {
 	case 1:
+		// Claim the session under the lock: deleting it here guarantees the
+		// moderation action below runs exactly once even if concurrent
+		// callbacks arrive for the same vote message.
 		if s.cancelPin != nil {
 			s.cancelPin()
 		}
-		var actionResult bool
-		switch s.Type {
-		case BAN:
-			actionResult = banUser(ctx, b, s)
-		case MUTE:
-			actionResult = muteUser(ctx, b, s)
-		case TEXT_ONLY:
-			actionResult = textOnlyUser(ctx, b, s)
-		}
-		if actionResult {
-			go updateUserFragTag(ctx, b, s.ChatID, s.OwnerID)
-		}
 		delete(chatSession, msgID)
-		return answer
+		return answer, func() {
+			var actionResult bool
+			switch s.Type {
+			case BAN:
+				actionResult = banUser(ctx, b, s)
+			case MUTE:
+				actionResult = muteUser(ctx, b, s)
+			case TEXT_ONLY:
+				actionResult = textOnlyUser(ctx, b, s)
+			}
+			if actionResult {
+				go updateUserFragTag(ctx, b, s.ChatID, s.OwnerID)
+			}
+		}
 	case -1:
 		if s.cancelPin != nil {
 			s.cancelPin()
 		}
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.VoteMessageID)})
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.RequestMessageID)})
 		delete(chatSession, msgID)
-		return answer
+		return answer, func() {
+			b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.VoteMessageID)})
+			b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.RequestMessageID)})
+		}
 	}
 
-	b.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
-		ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
-		MessageID:   update.CallbackQuery.Message.Message.ID,
-		ReplyMarkup: getVoteButtons(upvotes, downvotes, s.Type),
-	})
-
-	return answer
+	return answer, func() {
+		b.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
+			ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
+			MessageID:   update.CallbackQuery.Message.Message.ID,
+			ReplyMarkup: getVoteButtons(upvotes, downvotes, s.Type),
+		})
+	}
 }
 
 // tallyVotes counts the up and down votes recorded in a session's voter map.
@@ -310,65 +331,79 @@ func formatVotersReport(banInfo *BanInfo, tagFor func(int64) string) string {
 	return strings.Join(lines, "\n")
 }
 
-// expireVoteLocked removes one active vote: cancels the pending pin, deletes
-// the vote and request messages, and announces the expiry in the chat.
-// Caller must hold sessionsMux and delete the session entry afterwards.
-func expireVoteLocked(ctx context.Context, chatID int64, msgID int64, s *BanInfo) {
-	if s.cancelPin != nil {
-		s.cancelPin()
+// expiredVote pairs a removed session with its vote message ID so the network
+// side of expiry can run after sessionsMux is released.
+type expiredVote struct {
+	chatID int64
+	msgID  int64
+	s      *BanInfo
+}
+
+// collectExpiredVotesLocked removes every session matching shouldExpire from the
+// sessions map, cancels each pending pin, and returns the removed sessions for
+// out-of-lock expiry. Caller must hold sessionsMux.
+func collectExpiredVotesLocked(shouldExpire func(*BanInfo) bool, tag string) []expiredVote {
+	var expired []expiredVote
+	for chatID, chatSession := range sessions {
+		for msgID, s := range chatSession {
+			if !shouldExpire(s) {
+				continue
+			}
+			zap.S().Infof("[%s] expiring vote messageID=%d chatID=%d userID=%d", tag, msgID, chatID, s.UserID)
+			if s.cancelPin != nil {
+				s.cancelPin()
+			}
+			delete(chatSession, msgID)
+			expired = append(expired, expiredVote{chatID: chatID, msgID: msgID, s: s})
+		}
+		if len(chatSession) == 0 {
+			delete(sessions, chatID)
+		}
 	}
-	myBot.UnpinChatMessage(ctx, &bot.UnpinChatMessageParams{
-		ChatID:    chatID,
-		MessageID: int(msgID),
-	})
-	myBot.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    chatID,
-		MessageID: int(msgID),
-	})
-	myBot.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    chatID,
-		MessageID: int(s.RequestMessageID),
-	})
-	myBot.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    chatID,
-		Text:      voteExpiredText(s.UserName, s.ProfileName, s.UserID),
-		ParseMode: models.ParseModeMarkdown,
-	})
+	return expired
+}
+
+// expireVotes performs the network side of expiry for already-removed sessions:
+// it unpins/deletes the vote and request messages and announces the expiry.
+// Must be called without holding sessionsMux.
+func expireVotes(ctx context.Context, expired []expiredVote) {
+	for _, e := range expired {
+		myBot.UnpinChatMessage(ctx, &bot.UnpinChatMessageParams{
+			ChatID:    e.chatID,
+			MessageID: int(e.msgID),
+		})
+		myBot.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    e.chatID,
+			MessageID: int(e.msgID),
+		})
+		myBot.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    e.chatID,
+			MessageID: int(e.s.RequestMessageID),
+		})
+		myBot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:    e.chatID,
+			Text:      voteExpiredText(e.s.UserName, e.s.ProfileName, e.s.UserID),
+			ParseMode: models.ParseModeMarkdown,
+		})
+	}
 }
 
 func expireOldVotes(ctx context.Context) {
 	const maxAge = 36 * time.Hour // 1.5 days
 
 	sessionsMux.Lock()
-	defer sessionsMux.Unlock()
+	expired := collectExpiredVotesLocked(func(s *BanInfo) bool {
+		return time.Since(s.CreatedAt) >= maxAge
+	}, "expireOldVotes")
+	sessionsMux.Unlock()
 
-	for chatID, chatSession := range sessions {
-		for msgID, s := range chatSession {
-			if time.Since(s.CreatedAt) < maxAge {
-				continue
-			}
-			zap.S().Infof("[expireOldVotes] expiring vote messageID=%d chatID=%d userID=%d", msgID, chatID, s.UserID)
-			expireVoteLocked(ctx, chatID, msgID, s)
-			delete(chatSession, msgID)
-		}
-		if len(chatSession) == 0 {
-			delete(sessions, chatID)
-		}
-	}
+	expireVotes(ctx, expired)
 }
 
 func expireAllVotes(ctx context.Context) {
 	sessionsMux.Lock()
-	defer sessionsMux.Unlock()
+	expired := collectExpiredVotesLocked(func(*BanInfo) bool { return true }, "expireAllVotes")
+	sessionsMux.Unlock()
 
-	for chatID, chatSession := range sessions {
-		for msgID, s := range chatSession {
-			zap.S().Infof("[expireAllVotes] expiring vote messageID=%d chatID=%d userID=%d", msgID, chatID, s.UserID)
-			expireVoteLocked(ctx, chatID, msgID, s)
-			delete(chatSession, msgID)
-		}
-		if len(chatSession) == 0 {
-			delete(sessions, chatID)
-		}
-	}
+	expireVotes(ctx, expired)
 }
