@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-telegram/bot"
@@ -157,25 +158,6 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 			zap.S().Infof("[banUser] MTProto fallback ban failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
 		}
 	}
-	if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    s.ChatID,
-		MessageID: int(s.TargetMessageID),
-	}); err != nil {
-		zap.S().Infof("[banUser] can't delete target messageID=%d in chatID=%d: %v", s.TargetMessageID, s.ChatID, err)
-	}
-	if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    s.ChatID,
-		MessageID: int(s.VoteMessageID),
-	}); err != nil {
-		zap.S().Infof("[banUser] can't delete vote messageID=%d in chatID=%d: %v", s.VoteMessageID, s.ChatID, err)
-	}
-	if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    s.ChatID,
-		MessageID: int(s.RequestMessageID),
-	}); err != nil {
-		zap.S().Infof("[banUser] can't delete request messageID=%d in chatID=%d: %v", s.RequestMessageID, s.ChatID, err)
-	}
-
 	resultText := "Заблокирован успешно"
 	if !result {
 		resultText = "Не удалось заблокировать"
@@ -191,36 +173,41 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 	report := fmt.Sprintf("%s\n%s %s\n%s", chatName, resultText, banUsertag, ownerInfo)
 
 	userMessages, err := getUserLastDaysMessages(ctx, s.UserID, s.ChatID, 2)
-	messageIDs := make([]int, len(userMessages))
 
+	// Collect every message ID to delete, de-duplicated: the vote/request/target
+	// messages plus the user's recent messages.
+	toDelete := map[int64]struct{}{
+		s.TargetMessageID:  {},
+		s.VoteMessageID:    {},
+		s.RequestMessageID: {},
+	}
 	if err == nil && len(userMessages) > 0 {
-
 		text := make([]string, 0, len(userMessages))
-		for i, v := range userMessages {
-			messageIDs[i] = int(v.MessageID)
+		for _, v := range userMessages {
+			toDelete[v.MessageID] = struct{}{}
 			text = append(text, quoteText(v.Text))
 		}
-		escapedText := strings.Join(text, "\n")
-		escapedText = firstN(escapedText, 3500)
+		escapedText := firstN(strings.Join(text, "\n"), 3500)
 		report = fmt.Sprintf("%s\nПоследние сообщения от пользователя:\n%s", report, escapedText)
 	}
-	alreadyDeleted := map[int64]bool{
-		s.TargetMessageID:  true,
-		s.VoteMessageID:    true,
-		s.RequestMessageID: true,
+	delete(toDelete, 0) // never try to delete message ID 0
+
+	// Deletes are independent round-trips; fire them concurrently.
+	var delWg sync.WaitGroup
+	for id := range toDelete {
+		delWg.Add(1)
+		go func(id int64) {
+			defer delWg.Done()
+			if _, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    s.ChatID,
+				MessageID: int(id),
+			}); err != nil {
+				zap.S().Infof("[banUser] can't delete messageID=%d for userID=%d in chatID=%d: %v", id, s.UserID, s.ChatID, err)
+			}
+		}(id)
 	}
-	for _, v := range messageIDs {
-		if alreadyDeleted[int64(v)] {
-			continue
-		}
-		_, err = b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    s.ChatID,
-			MessageID: int(v),
-		})
-		if err != nil {
-			zap.S().Infof("[banUser] can't delete messageID=%d for userID=%d in chatID=%d: %v", v, s.UserID, s.ChatID, err)
-		}
-	}
+	delWg.Wait()
+
 	pushBanLog(ctx, s)
 	disablePreview := &models.LinkPreviewOptions{IsDisabled: bot.True()}
 
@@ -229,18 +216,24 @@ func banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 
 	chatSettings := getChatSettings(ctx, s.ChatID)
 
+	keyboard := getBanMessageKeyboard(s.ChatID, s.UserID, s.VoteMessageID)
+	var sendWg sync.WaitGroup
 	for _, v := range chatSettings.LogRecipients {
-		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID:             v,
-			Text:               report,
-			ParseMode:          models.ParseModeMarkdown,
-			ReplyMarkup:        getBanMessageKeyboard(s.ChatID, s.UserID, s.VoteMessageID),
-			LinkPreviewOptions: disablePreview,
-		})
-		if err != nil {
-			zap.S().Infof("[banUser] can't send report to recipientID=%d: %v", v, err)
-		}
+		sendWg.Add(1)
+		go func(recipientID int64) {
+			defer sendWg.Done()
+			if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID:             recipientID,
+				Text:               report,
+				ParseMode:          models.ParseModeMarkdown,
+				ReplyMarkup:        keyboard,
+				LinkPreviewOptions: disablePreview,
+			}); err != nil {
+				zap.S().Infof("[banUser] can't send report to recipientID=%d: %v", recipientID, err)
+			}
+		}(v)
 	}
+	sendWg.Wait()
 
 	if result {
 		reactionCache.Delete(reactionKey{chatID: s.ChatID, userID: s.UserID})

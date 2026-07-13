@@ -57,8 +57,11 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 				return
 			}
 
-			go userPlusOneMessage(ctx, userID, userName, altUserName)
-			go saveMessage(ctx, &ChatMessage{
+			// Detach from the handler context: the bot library may cancel ctx
+			// once the handler returns, which would abort these background writes.
+			bgCtx := context.WithoutCancel(ctx)
+			go userPlusOneMessage(bgCtx, userID, userName, altUserName)
+			go saveMessage(bgCtx, &ChatMessage{
 				MessageID: int64(update.Message.ID),
 				ChatID:    update.Message.Chat.ID,
 				UserID:    userID,
@@ -77,7 +80,7 @@ func logMessagesMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 			if len(hiddenUrls) != 0 {
 				storedText = fmt.Sprintf("%s\n%s", storedText, strings.Join(hiddenUrls, "\n"))
 			}
-			go updateMessage(ctx, &ChatMessage{
+			go updateMessage(context.WithoutCancel(ctx), &ChatMessage{
 				MessageID: int64(update.EditedMessage.ID),
 				ChatID:    update.EditedMessage.Chat.ID,
 				Text:      storedText,

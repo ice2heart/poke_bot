@@ -64,6 +64,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 					"Укажите ссылку на сообщение или пользователя.\nПримеры:\n/%s https://t.me/c/1657123097/2854347\n/%s @username\n/%s https://t.me/channelname/123?comment=456",
 					cfg.command, cfg.command, cfg.command,
 				)), true, 30)
+			return
 		}
 
 		zap.S().Infof("[%sHandler] new /%s from userID=%d in chatID=%d: %q",

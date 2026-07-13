@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-telegram/bot"
@@ -25,7 +26,10 @@ func makeMuteMessage(b *BanInfo) string {
 	} else {
 		username = fmt.Sprintf("@%s", escape(b.UserName))
 	}
-	messageLink := fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
+	messageLink := ""
+	if b.TargetMessageID != 0 {
+		messageLink = fmt.Sprintf("[Ссылка на сообщение](tg://privatepost?channel=%s&post=%d)", makePublicGroupString(b.ChatID), b.TargetMessageID)
+	}
 
 	return fmt.Sprintf("Голосование за мут %s\nДля решения необходим перевес в %d голосов\n%s\n%s", username, b.Score, messageLink, text)
 }
@@ -110,16 +114,22 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 		}
 	}
 
-	//Delete the vote message
-	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    s.ChatID,
-		MessageID: int(s.VoteMessageID),
-	})
-	// Delete the vote request
-	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    s.ChatID,
-		MessageID: int(s.RequestMessageID),
-	})
+	// Delete the vote message and the vote request concurrently.
+	var delWg sync.WaitGroup
+	for _, id := range []int64{s.VoteMessageID, s.RequestMessageID} {
+		if id == 0 {
+			continue
+		}
+		delWg.Add(1)
+		go func(id int64) {
+			defer delWg.Done()
+			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    s.ChatID,
+				MessageID: int(id),
+			})
+		}(id)
+	}
+	delWg.Wait()
 
 	resultText := fmt.Sprintf("Мут выдан на %s", getMuteDurationText(userRecord))
 	if !result {
@@ -157,18 +167,24 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 	settingsMux.Lock()
 	chatSettings := getChatSettings(ctx, s.ChatID)
 
+	keyboard := getMuteMessageKeyboard(s.ChatID, s.UserID, s.VoteMessageID)
+	var sendWg sync.WaitGroup
 	for _, v := range chatSettings.LogRecipients {
-		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID:             v,
-			Text:               report,
-			ParseMode:          models.ParseModeMarkdown,
-			ReplyMarkup:        getMuteMessageKeyboard(s.ChatID, s.UserID, s.VoteMessageID),
-			LinkPreviewOptions: disablePreview,
-		})
-		if err != nil {
-			zap.S().Infof("[muteUser] can't send report to recipientID=%d: %v", v, err)
-		}
+		sendWg.Add(1)
+		go func(recipientID int64) {
+			defer sendWg.Done()
+			if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID:             recipientID,
+				Text:               report,
+				ParseMode:          models.ParseModeMarkdown,
+				ReplyMarkup:        keyboard,
+				LinkPreviewOptions: disablePreview,
+			}); err != nil {
+				zap.S().Infof("[muteUser] can't send report to recipientID=%d: %v", recipientID, err)
+			}
+		}(v)
 	}
+	sendWg.Wait()
 	settingsMux.Unlock()
 
 	if result {
