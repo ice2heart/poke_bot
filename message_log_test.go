@@ -187,6 +187,18 @@ func TestExtractLinkedMessageIDs(t *testing.T) {
 			entities: nil,
 			want:     nil,
 		},
+		{
+			name:     "telegram.me public link with matching username",
+			text:     "https://telegram.me/mychat/42",
+			entities: urlEntity("https://telegram.me/mychat/42"),
+			want:     []int{42},
+		},
+		{
+			name:     "telegram.me private link with matching chat ID",
+			text:     "https://telegram.me/c/1234567890/17",
+			entities: urlEntity("https://telegram.me/c/1234567890/17"),
+			want:     []int{17},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

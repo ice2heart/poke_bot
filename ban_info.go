@@ -15,6 +15,46 @@ const (
 	TEXT_ONLY
 )
 
+// voteType collects everything that varies between the kinds of vote: the vote
+// buttons, the answers shown to a voter, and the moderation action applied when
+// the vote passes. Adding a kind of vote means adding one entry to voteTypes —
+// the voting machinery itself is type-agnostic.
+type voteType struct {
+	upText   string // upvote button label; the vote count is appended
+	downText string // downvote button label; the vote count is appended
+
+	upAnswer   string // shown to a voter whose upvote was accepted
+	downAnswer string // shown to a voter whose downvote was accepted
+
+	// apply carries out the moderation action once the vote has passed, and
+	// reports whether it succeeded.
+	apply func(ctx context.Context, b *bot.Bot, s *BanInfo) bool
+}
+
+var voteTypes = map[uint8]voteType{
+	BAN: {
+		upText:     "За бан",
+		downText:   "Против бана",
+		upAnswer:   "Голос за бан принят",
+		downAnswer: "Голос против бана принят",
+		apply:      banUser,
+	},
+	MUTE: {
+		upText:     "За мут",
+		downText:   "Против мута",
+		upAnswer:   "Голос за мут принят",
+		downAnswer: "Голос против мута принят",
+		apply:      muteUser,
+	},
+	TEXT_ONLY: {
+		upText:     "Только текст",
+		downText:   "Обычный режим",
+		upAnswer:   "Голос за режим «только текст» принят",
+		downAnswer: "Голос за обычный режим принят",
+		apply:      textOnlyUser,
+	},
+}
+
 type BanInfo struct {
 	ChatID           int64
 	TargetMessageID  int64

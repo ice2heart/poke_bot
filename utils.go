@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-var linkRegex *regexp.Regexp = regexp.MustCompile(`(?:\s*https://t\.me/(c/)?([\d\w]+)/(\d+)(?:\?comment=(\d+))?)`)
+var linkRegex *regexp.Regexp = regexp.MustCompile(`(?:\s*https://(?:t\.me|telegram\.me)/(c/)?([\d\w]+)/(\d+)(?:\?comment=(\d+))?)`)
 
 // Do not touch, this is because UTF-8 symbols != bytes
 func firstN(s string, n int) string {

@@ -143,7 +143,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 			banInfo.OwnerID = senderId
 			banInfo.RequestMessageID = int64(update.Message.ID)
 
-			if checkForDuplicates(ctx, chatId, banInfo.UserID, b, update) {
+			if checkForDuplicates(ctx, chatId, banInfo.UserID, senderId, b, update) {
 				continue
 			}
 

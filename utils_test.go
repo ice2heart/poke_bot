@@ -215,6 +215,45 @@ func TestParseChatLink(t *testing.T) {
 				{chatID: chatID, msgID: 200},
 			},
 		},
+		{
+			name:     "telegram.me public chat match",
+			link:     "https://telegram.me/mychat/42",
+			chatID:   chatID,
+			chatName: chatName,
+			want:     []wantParsedLink{{chatID: chatID, msgID: 42}},
+		},
+		{
+			name:     "telegram.me private chat match",
+			link:     "https://telegram.me/c/1234567890/42",
+			chatID:   chatID,
+			chatName: chatName,
+			want:     []wantParsedLink{{chatID: chatID, msgID: 42}},
+		},
+		{
+			name:                  "telegram.me channel comment link",
+			link:                  "https://telegram.me/mychannel/100?comment=456",
+			chatID:                chatID,
+			chatName:              chatName,
+			linkedChannelUsername: "mychannel",
+			want:                  []wantParsedLink{{chatID: chatID, msgID: 456}},
+		},
+		{
+			name:     "telegram.me public chat username mismatch",
+			link:     "https://telegram.me/wrongchat/42",
+			chatID:   chatID,
+			chatName: chatName,
+			want:     []wantParsedLink{{wantErr: true}},
+		},
+		{
+			name:     "mixed t.me and telegram.me links",
+			link:     "https://t.me/mychat/1 https://telegram.me/mychat/2",
+			chatID:   chatID,
+			chatName: chatName,
+			want: []wantParsedLink{
+				{chatID: chatID, msgID: 1},
+				{chatID: chatID, msgID: 2},
+			},
+		},
 	}
 
 	for _, tt := range tests {

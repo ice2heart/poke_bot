@@ -44,45 +44,19 @@ func makePublicGroupString(groupID int64) string {
 }
 
 func getVoteButtons(upvotes int, downvotes int, textType uint8) *models.InlineKeyboardMarkup {
-
-	switch textType {
-	case BAN:
-		{
-			return &models.InlineKeyboardMarkup{
-				InlineKeyboard: [][]models.InlineKeyboardButton{
-					{
-						{Text: fmt.Sprintf("За бан (%d)", upvotes), CallbackData: "button_upvote"},
-						{Text: fmt.Sprintf("Против бана (%d)", downvotes), CallbackData: "button_downvote"},
-					},
-				},
-			}
-		}
-	case MUTE:
-		{
-			return &models.InlineKeyboardMarkup{
-				InlineKeyboard: [][]models.InlineKeyboardButton{
-					{
-						{Text: fmt.Sprintf("За мут (%d)", upvotes), CallbackData: "button_upvote"},
-						{Text: fmt.Sprintf("Против мута (%d)", downvotes), CallbackData: "button_downvote"},
-					},
-				},
-			}
-		}
-	case TEXT_ONLY:
-		{
-			return &models.InlineKeyboardMarkup{
-				InlineKeyboard: [][]models.InlineKeyboardButton{
-					{
-						{Text: fmt.Sprintf("Только текст (%d)", upvotes), CallbackData: "button_upvote"},
-						{Text: fmt.Sprintf("Обычный режим (%d)", downvotes), CallbackData: "button_downvote"},
-					},
-				},
-			}
-		}
+	vt, ok := voteTypes[textType]
+	if !ok {
+		zap.S().Infof("[getVoteButtons] unknown vote type %d", textType)
+		return &models.InlineKeyboardMarkup{}
 	}
-
-	return &models.InlineKeyboardMarkup{}
-
+	return &models.InlineKeyboardMarkup{
+		InlineKeyboard: [][]models.InlineKeyboardButton{
+			{
+				{Text: fmt.Sprintf("%s (%d)", vt.upText, upvotes), CallbackData: BUTTON_UPVOTE},
+				{Text: fmt.Sprintf("%s (%d)", vt.downText, downvotes), CallbackData: BUTTON_DOWNVOTE},
+			},
+		},
+	}
 }
 
 // showVotersButton builds the "who voted" button for a report keyboard, or
