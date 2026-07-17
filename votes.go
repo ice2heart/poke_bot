@@ -93,19 +93,23 @@ func makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 	// голосуем за бан @пользователя необходимо Н голосов
 	//  Последнее сообщение: тут текст
 
-	responseMessage, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    banInfo.ChatID,
-		Text:      banInfo.BanMessage,
-		ParseMode: models.ParseModeMarkdown,
-		ReplyParameters: &models.ReplyParameters{
-			ChatID:    banInfo.ChatID,
-			MessageID: int(banInfo.RequestMessageID),
-		},
+	params := &bot.SendMessageParams{
+		ChatID:      banInfo.ChatID,
+		Text:        banInfo.BanMessage,
+		ParseMode:   models.ParseModeMarkdown,
 		ReplyMarkup: getVoteButtons(0, 0, banInfo.Type),
 		LinkPreviewOptions: &models.LinkPreviewOptions{
 			IsDisabled: bot.True(),
 		},
-	})
+	}
+	// Automatic votes have no request message to reply to.
+	if banInfo.RequestMessageID != 0 {
+		params.ReplyParameters = &models.ReplyParameters{
+			ChatID:    banInfo.ChatID,
+			MessageID: int(banInfo.RequestMessageID),
+		}
+	}
+	responseMessage, err := b.SendMessage(ctx, params)
 	if err != nil {
 		zap.S().Infof("[makeVoteMessage] SendMessage failed: userID=%d chatID=%d type=%d: %v", banInfo.UserID, banInfo.ChatID, banInfo.Type, err)
 		return false
@@ -287,7 +291,9 @@ func castVote(ctx context.Context, b *bot.Bot, s *BanInfo, chatSession map[int64
 		settleSession(s, chatSession, msgID)
 		return voteResult{answer: answer, counted: true, decided: true, action: func() {
 			b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.VoteMessageID)})
-			b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.RequestMessageID)})
+			if s.RequestMessageID != 0 {
+				b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.RequestMessageID)})
+			}
 		}}
 	}
 
@@ -430,10 +436,12 @@ func expireVotes(ctx context.Context, expired []expiredVote) {
 			ChatID:    e.chatID,
 			MessageID: int(e.msgID),
 		})
-		myBot.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    e.chatID,
-			MessageID: int(e.s.RequestMessageID),
-		})
+		if e.s.RequestMessageID != 0 {
+			myBot.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    e.chatID,
+				MessageID: int(e.s.RequestMessageID),
+			})
+		}
 		myBot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:    e.chatID,
 			Text:      voteExpiredText(e.s.UserName, e.s.ProfileName, e.s.UserID),

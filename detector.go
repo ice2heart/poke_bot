@@ -144,18 +144,16 @@ func chatBanPatterns(chatID int64) (patterns []string, paused bool) {
 	return slices.Clone(chatSettings.BanPatterns), chatSettings.Pause
 }
 
-// processDetectorMessage checks a new message against the chat's ban patterns
-// and automatically starts a ban vote when one matches.
-func processDetectorMessage(ctx context.Context, b *bot.Bot, update *models.Update) {
-	msg := update.Message
+// processDetectorMessage checks a new or edited message against the chat's ban
+// patterns and automatically starts a ban vote when one matches.
+func processDetectorMessage(ctx context.Context, b *bot.Bot, msg *models.Message) {
 	if msg == nil || msg.From == nil || msg.Chat.ID >= 0 || msg.From.ID == b.ID() {
 		return
 	}
 
-	text := msg.Text
-	if text == "" {
-		text = msg.Caption
-	}
+	// Match against the same composite text that gets logged: text or caption
+	// plus sticker/GIF descriptions and hidden text-link URLs.
+	text := buildStoredText(msg)
 	if text == "" {
 		return
 	}
@@ -214,10 +212,11 @@ func processDetectorMessage(ctx context.Context, b *bot.Bot, update *models.Upda
 	banInfo.TargetMessageID = int64(msg.ID)
 	banInfo.LastMessage = text
 	banInfo.BanMessage = makeBanMessage(banInfo)
-	// The bot itself owns automatic votes; the vote message replies to the
-	// message that triggered the pattern.
+	// The bot itself owns automatic votes. There is no request message: the
+	// vote stands alone (linked to the target message in its text), so a
+	// cancelled or expired vote leaves the triggering message in place and
+	// only a passed ban deletes it.
 	banInfo.OwnerID = b.ID()
-	banInfo.RequestMessageID = int64(msg.ID)
 
 	makeVoteMessage(ctx, banInfo, b)
 }
@@ -320,9 +319,10 @@ func startDetector(ctx context.Context, b *bot.Bot) {
 			// 	log.Printf("[startDetector] update: %s", data)
 			// }
 			if update.Message != nil {
-				processDetectorMessage(ctx, b, update)
+				processDetectorMessage(ctx, b, update.Message)
 			}
 			if update.EditedMessage != nil {
+				processDetectorMessage(ctx, b, update.EditedMessage)
 				processDetectorEdit(ctx, b, update)
 			}
 			if update.MessageReaction != nil {
