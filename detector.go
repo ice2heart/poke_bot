@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-telegram/bot"
@@ -105,6 +109,206 @@ func processDetectorReaction(ctx context.Context, update *models.Update) {
 // editLinkMinDelay is the minimum edit delay (seconds) that triggers link-spam detection.
 const editLinkMinDelay = 120 // 2 minutes
 
+var (
+	patternCacheMux sync.Mutex
+	patternCache    = make(map[string]*regexp.Regexp)
+)
+
+// compiledPattern returns the case-insensitive regexp for a stored ban pattern,
+// compiling it once and caching the result. Returns nil for invalid patterns.
+func compiledPattern(pattern string) *regexp.Regexp {
+	patternCacheMux.Lock()
+	defer patternCacheMux.Unlock()
+	re, ok := patternCache[pattern]
+	if !ok {
+		var err error
+		re, err = regexp.Compile("(?i)" + pattern)
+		if err != nil {
+			zap.S().Infof("[compiledPattern] invalid pattern %q: %v", pattern, err)
+			re = nil
+		}
+		patternCache[pattern] = re
+	}
+	return re
+}
+
+// chatBanPatterns returns a copy of the chat's ban patterns without creating a
+// settings record for chats (e.g. private ones) that have none.
+func chatBanPatterns(chatID int64) (patterns []string, paused bool) {
+	settingsMux.Lock()
+	defer settingsMux.Unlock()
+	chatSettings, ok := settings[chatID]
+	if !ok {
+		return nil, false
+	}
+	return slices.Clone(chatSettings.BanPatterns), chatSettings.Pause
+}
+
+// processDetectorMessage checks a new message against the chat's ban patterns
+// and automatically starts a ban vote when one matches.
+func processDetectorMessage(ctx context.Context, b *bot.Bot, update *models.Update) {
+	msg := update.Message
+	if msg == nil || msg.From == nil || msg.Chat.ID >= 0 || msg.From.ID == b.ID() {
+		return
+	}
+
+	text := msg.Text
+	if text == "" {
+		text = msg.Caption
+	}
+	if text == "" {
+		return
+	}
+
+	// Commands are handled by their own handlers.
+	for _, e := range msg.Entities {
+		if e.Type == models.MessageEntityTypeBotCommand && e.Offset == 0 {
+			return
+		}
+	}
+
+	patterns, paused := chatBanPatterns(msg.Chat.ID)
+	if paused || len(patterns) == 0 {
+		return
+	}
+
+	matched := ""
+	for _, p := range patterns {
+		if re := compiledPattern(p); re != nil && re.MatchString(text) {
+			matched = p
+			break
+		}
+	}
+	if matched == "" {
+		return
+	}
+
+	userID := msg.From.ID
+	if msg.SenderChat != nil {
+		userID = msg.SenderChat.ID
+	}
+
+	adminsMux.Lock()
+	_, isAdmin := checkAdmins(ctx, b, msg.Chat.ID)[userID]
+	adminsMux.Unlock()
+	if isAdmin {
+		return
+	}
+
+	sessionsMux.Lock()
+	running, _, _ := findSessionByUser(msg.Chat.ID, userID)
+	recentlyBanned := getCachedBanInfo(msg.Chat.ID, userID)
+	sessionsMux.Unlock()
+	if running != nil || recentlyBanned {
+		return
+	}
+
+	zap.S().Infof("[detector] ban pattern %q matched: userID=%d chatID=%d messageID=%d",
+		matched, userID, msg.Chat.ID, msg.ID)
+
+	banInfo, err := getBanInfoByUserID(ctx, msg.Chat.ID, userID)
+	if err != nil {
+		zap.S().Infof("[detector] getBanInfoByUserID failed for userID=%d chatID=%d: %v", userID, msg.Chat.ID, err)
+		return
+	}
+	banInfo.TargetMessageID = int64(msg.ID)
+	banInfo.LastMessage = text
+	banInfo.BanMessage = makeBanMessage(banInfo)
+	// The bot itself owns automatic votes; the vote message replies to the
+	// message that triggered the pattern.
+	banInfo.OwnerID = b.ID()
+	banInfo.RequestMessageID = int64(msg.ID)
+
+	makeVoteMessage(ctx, banInfo, b)
+}
+
+// addPatternHandler adds a ban-trigger regexp to the chat settings.
+// Usage: /add_pattern <regex>
+func addPatternHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	chatID := update.Message.Chat.ID
+	msgID := update.Message.ID
+	if !isUserAdmin(ctx, b, chatID, update.Message.From.ID, chatID, msgID) {
+		return
+	}
+
+	var pattern string
+	if parts := strings.SplitN(update.Message.Text, " ", 2); len(parts) == 2 {
+		pattern = strings.TrimSpace(parts[1])
+	}
+	if pattern == "" {
+		systemAnswerToMessage(ctx, b, chatID, msgID, escape("Использование: /add_pattern <регулярное выражение>"), true, 30)
+		return
+	}
+	if _, err := regexp.Compile("(?i)" + pattern); err != nil {
+		systemAnswerToMessage(ctx, b, chatID, msgID, escape(fmt.Sprintf("Некорректное регулярное выражение: %v", err)), true, 30)
+		return
+	}
+
+	settingsMux.Lock()
+	chatSettings := getChatSettings(ctx, chatID)
+	exists := slices.Contains(chatSettings.BanPatterns, pattern)
+	if !exists {
+		chatSettings.BanPatterns = append(chatSettings.BanPatterns, pattern)
+		writeChatSettings(ctx, chatID, chatSettings)
+	}
+	settingsMux.Unlock()
+
+	if exists {
+		systemAnswerToMessage(ctx, b, chatID, msgID, escape("Такой паттерн уже добавлен"), true, 30)
+		return
+	}
+	zap.S().Infof("[addPatternHandler] chatID=%d pattern=%q added by userID=%d", chatID, pattern, update.Message.From.ID)
+	systemAnswerToMessage(ctx, b, chatID, msgID, escape(fmt.Sprintf("Паттерн добавлен: %s", pattern)), true, 30)
+}
+
+// delPatternHandler removes a ban-trigger regexp by its 1-based index.
+// Called without a valid index it lists the configured patterns.
+// Usage: /del_pattern <номер>
+func delPatternHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	chatID := update.Message.Chat.ID
+	msgID := update.Message.ID
+	if !isUserAdmin(ctx, b, chatID, update.Message.From.ID, chatID, msgID) {
+		return
+	}
+
+	settingsMux.Lock()
+	chatSettings := getChatSettings(ctx, chatID)
+	patterns := slices.Clone(chatSettings.BanPatterns)
+	settingsMux.Unlock()
+
+	if len(patterns) == 0 {
+		systemAnswerToMessage(ctx, b, chatID, msgID, escape("Паттерны не настроены"), true, 30)
+		return
+	}
+
+	var index int
+	if parts := strings.SplitN(update.Message.Text, " ", 2); len(parts) == 2 {
+		index, _ = strconv.Atoi(strings.TrimSpace(parts[1]))
+	}
+	if index < 1 || index > len(patterns) {
+		lines := make([]string, 0, len(patterns)+1)
+		lines = append(lines, "Использование: /del_pattern <номер>")
+		for i, p := range patterns {
+			lines = append(lines, fmt.Sprintf("%d. %s", i+1, p))
+		}
+		systemAnswerToMessage(ctx, b, chatID, msgID, escape(strings.Join(lines, "\n")), true, 60)
+		return
+	}
+
+	removed := patterns[index-1]
+
+	settingsMux.Lock()
+	chatSettings = getChatSettings(ctx, chatID)
+	if i := slices.Index(chatSettings.BanPatterns, removed); i >= 0 {
+		chatSettings.BanPatterns = slices.Delete(chatSettings.BanPatterns, i, i+1)
+		writeChatSettings(ctx, chatID, chatSettings)
+	}
+	settingsMux.Unlock()
+
+	zap.S().Infof("[delPatternHandler] chatID=%d pattern=%q removed by userID=%d", chatID, removed, update.Message.From.ID)
+	systemAnswerToMessage(ctx, b, chatID, msgID, escape(fmt.Sprintf("Паттерн удалён: %s", removed)), true, 30)
+}
+
 // startDetector runs the detection loop in a goroutine; exits when ctx is cancelled.
 func startDetector(ctx context.Context, b *bot.Bot) {
 	for {
@@ -115,6 +319,9 @@ func startDetector(ctx context.Context, b *bot.Bot) {
 			// if data, err := json.MarshalIndent(update, "", "\t"); err == nil {
 			// 	log.Printf("[startDetector] update: %s", data)
 			// }
+			if update.Message != nil {
+				processDetectorMessage(ctx, b, update)
+			}
 			if update.EditedMessage != nil {
 				processDetectorEdit(ctx, b, update)
 			}

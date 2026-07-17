@@ -80,7 +80,9 @@ func checkForDuplicates(ctx context.Context, chatId int64, userid int64, voterID
 
 	text := fmt.Sprintf("[Голосование уже создано](tg://privatepost?channel=%s&post=%d)",
 		makePublicGroupString(chatId), msgID)
-	if result.answer != "" {
+	if result.counted {
+		text = fmt.Sprintf("%s\n%s", escape("Ваш голос +1 добавлен к голосованию"), text)
+	} else if result.answer != "" {
 		text = fmt.Sprintf("%s\n%s", escape(result.answer), text)
 	}
 	systemAnswerToMessage(ctx, b, chatId, update.Message.ID, text, true, 30)
@@ -222,10 +224,11 @@ func parseVoteSession(ctx context.Context, b *bot.Bot, update *models.Update) (s
 }
 
 // voteResult is the outcome of casting a vote: the answer to show the voter,
-// whether the vote settled, and the network I/O the caller must run once it has
-// released sessionsMux.
+// whether the vote was actually recorded, whether the vote settled, and the
+// network I/O the caller must run once it has released sessionsMux.
 type voteResult struct {
 	answer  string
+	counted bool
 	decided bool
 	action  func()
 }
@@ -275,21 +278,21 @@ func castVote(ctx context.Context, b *bot.Bot, s *BanInfo, chatSession map[int64
 		// moderation action below runs exactly once even if concurrent votes
 		// arrive for the same vote message.
 		settleSession(s, chatSession, msgID)
-		return voteResult{answer: answer, decided: true, action: func() {
+		return voteResult{answer: answer, counted: true, decided: true, action: func() {
 			if vt.apply(ctx, b, s) {
 				go updateUserFragTag(ctx, b, s.ChatID, s.OwnerID)
 			}
 		}}
 	case -1:
 		settleSession(s, chatSession, msgID)
-		return voteResult{answer: answer, decided: true, action: func() {
+		return voteResult{answer: answer, counted: true, decided: true, action: func() {
 			b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.VoteMessageID)})
 			b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: s.ChatID, MessageID: int(s.RequestMessageID)})
 		}}
 	}
 
 	// Still collecting votes: just refresh the counts on the buttons.
-	return voteResult{answer: answer, action: func() {
+	return voteResult{answer: answer, counted: true, action: func() {
 		b.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
 			ChatID:      s.ChatID,
 			MessageID:   int(msgID),

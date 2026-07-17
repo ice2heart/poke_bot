@@ -161,6 +161,8 @@ func main() {
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypePrefix, startHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/delete", bot.MatchTypePrefix, deleteMessageHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/set_channel", bot.MatchTypePrefix, setChannelHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/add_pattern", bot.MatchTypePrefix, addPatternHandler)
+	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/del_pattern", bot.MatchTypePrefix, delPatternHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/likes", bot.MatchTypePrefix, likesHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/best", bot.MatchTypePrefix, bestHandler)
 	myBot.RegisterHandler(bot.HandlerTypeMessageText, "/set_tag", bot.MatchTypePrefix, setTagHandler)

@@ -78,6 +78,9 @@ type DynamicSetting struct {
 	ChatUsername          string
 	ChatAccessHash        int64
 	LinkedChannelUsername string
+	// BanPatterns are case-insensitive regexps; a message matching any of them
+	// automatically starts a ban vote against its author.
+	BanPatterns []string
 }
 
 func initDb(ctx context.Context, connectionLine string, dbName string) {
