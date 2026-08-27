@@ -84,21 +84,36 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 
 	if result {
 		// do not notify if you failed
-		params := &bot.SendMessageParams{
-			ChatID:    s.ChatID,
-			Text:      escape(fmt.Sprintf("Вам выдан мут на %s. Надеемся на понимание.", restrictionDurationText(userRecord))),
-			ParseMode: models.ParseModeMarkdown,
-		}
+		notifyText := escape(fmt.Sprintf("Вам выдан мут на %s. Надеемся на понимание.", restrictionDurationText(userRecord)))
+
+		var replyParams *models.ReplyParameters
 		if s.TargetMessageID != 0 {
-			params.ReplyParameters = &models.ReplyParameters{
+			replyParams = &models.ReplyParameters{
 				ChatID:    s.ChatID,
 				MessageID: int(s.TargetMessageID),
 			}
 		}
-		zap.S().Infof("[muteUser] sending chat notification: chatID=%d targetMessageID=%d", s.ChatID, s.TargetMessageID)
-		_, notifyErr := b.SendMessage(ctx, params)
+
+		zap.S().Infof("[muteUser] sending chat notification: chatID=%d targetMessageID=%d cccp=%v", s.ChatID, s.TargetMessageID, s.Cccp)
+
+		var notifyErr error
+		if s.Cccp {
+			_, notifyErr = sendCccpPhoto(ctx, b, s.ChatID, &bot.SendPhotoParams{
+				ChatID:          s.ChatID,
+				Caption:         notifyText,
+				ParseMode:       models.ParseModeMarkdown,
+				ReplyParameters: replyParams,
+			})
+		} else {
+			_, notifyErr = b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID:          s.ChatID,
+				Text:            notifyText,
+				ParseMode:       models.ParseModeMarkdown,
+				ReplyParameters: replyParams,
+			})
+		}
 		if notifyErr != nil {
-			zap.S().Infof("[muteUser] chat notification failed: chatID=%d: %v", s.ChatID, notifyErr)
+			zap.S().Infof("[muteUser] chat notification failed: chatID=%d cccp=%v: %v", s.ChatID, s.Cccp, notifyErr)
 		}
 
 	}

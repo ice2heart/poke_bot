@@ -70,6 +70,7 @@ type BanInfo struct {
 	Voters           map[int64]int8
 	Type             uint8
 	CreatedAt        time.Time
+	Cccp             bool // /mute^cccp: attach cccp.jpg to the mute notification
 	cancelPin        context.CancelFunc
 }
 

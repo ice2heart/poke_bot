@@ -13,6 +13,12 @@ import (
 
 var tgUserLinkRegex *regexp.Regexp = regexp.MustCompile(`^tg://user\?id=(\d+)$`)
 
+// cccpRegex matches the /mute^cccp marker in either the Latin or the Cyrillic
+// spelling — the two are homoglyphs, visually identical. The marker is '^'
+// rather than '@' because @cccp is a claimable Telegram username, which would
+// make the image fire whenever that user was muted.
+var cccpRegex *regexp.Regexp = regexp.MustCompile(`(?i)\^(cccp|ссср)`)
+
 // voteHandlerConfig describes how to resolve targets and any ban-specific extras.
 type voteHandlerConfig struct {
 	command       string
@@ -22,6 +28,10 @@ type voteHandlerConfig struct {
 
 	// checkRecentCache guards against duplicate bans within the TTL window.
 	checkRecentCache bool
+
+	// allowCccp enables the /<command>^cccp variant, which attaches cccp.jpg to
+	// the notification sent when the vote passes.
+	allowCccp bool
 }
 
 // newBanInfoNoDB builds a BanInfo for a user that is not in the database.
@@ -142,6 +152,7 @@ func makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 
 			banInfo.OwnerID = senderId
 			banInfo.RequestMessageID = int64(update.Message.ID)
+			banInfo.Cccp = cfg.allowCccp && cccpRegex.MatchString(update.Message.Text)
 
 			if checkForDuplicates(ctx, chatId, banInfo.UserID, senderId, b, update) {
 				continue
@@ -180,6 +191,7 @@ var muteHandler = makeVoteHandler(voteHandlerConfig{
 	getByUserID:   getMuteInfoByUserID,
 	getByUsername: getMuteInfoByUser,
 	getByMessage:  getMuteInfo,
+	allowCccp:     true,
 })
 
 var textOnlyHandler = makeVoteHandler(voteHandlerConfig{
