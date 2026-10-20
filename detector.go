@@ -221,8 +221,33 @@ func processDetectorMessage(ctx context.Context, b *bot.Bot, msg *models.Message
 	makeVoteMessage(ctx, banInfo, b)
 }
 
+// patternQuotes maps opening quote characters to their closing counterparts.
+var patternQuotes = map[rune]rune{'"': '"', '«': '»', '“': '”', '„': '“'}
+
+var whitespaceRun = regexp.MustCompile(`\s+`)
+
+// parsePatternArg turns the /add_pattern argument into a stored regexp. A
+// phrase wrapped in quotes is matched literally (whitespace runs are relaxed to
+// \s+); anything else is used as a regexp as is.
+func parsePatternArg(arg string) string {
+	arg = strings.TrimSpace(arg)
+	runes := []rune(arg)
+	if len(runes) < 3 {
+		return arg
+	}
+	closing, ok := patternQuotes[runes[0]]
+	if !ok || runes[len(runes)-1] != closing {
+		return arg
+	}
+	phrase := strings.TrimSpace(string(runes[1 : len(runes)-1]))
+	if phrase == "" {
+		return arg
+	}
+	return whitespaceRun.ReplaceAllString(regexp.QuoteMeta(phrase), `\s+`)
+}
+
 // addPatternHandler adds a ban-trigger regexp to the chat settings.
-// Usage: /add_pattern <regex>
+// Usage: /add_pattern <regex> or /add_pattern "literal phrase"
 func addPatternHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatID := update.Message.Chat.ID
 	msgID := update.Message.ID
@@ -232,10 +257,10 @@ func addPatternHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 	var pattern string
 	if parts := strings.SplitN(update.Message.Text, " ", 2); len(parts) == 2 {
-		pattern = strings.TrimSpace(parts[1])
+		pattern = parsePatternArg(parts[1])
 	}
 	if pattern == "" {
-		systemAnswerToMessage(ctx, b, chatID, msgID, escape("Использование: /add_pattern <регулярное выражение>"), true, 30)
+		systemAnswerToMessage(ctx, b, chatID, msgID, escape("Использование: /add_pattern <регулярное выражение> или /add_pattern \"точная фраза\""), true, 30)
 		return
 	}
 	if _, err := regexp.Compile("(?i)" + pattern); err != nil {
