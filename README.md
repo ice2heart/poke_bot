@@ -63,13 +63,13 @@ This starts the bot alongside a MongoDB instance, using the prebuilt image from 
 ### Locally
 
 ```bash
-go run .
+go run ./cmd/poke_bot
 ```
 
 ### Build
 
 ```bash
-go build -o poke_bot .
+go build -o poke_bot ./cmd/poke_bot
 ```
 
 Releases are built and published via GoReleaser/GitHub Actions on tag push (see `.github/workflows/release.yml`, `.goreleaser.yaml`).

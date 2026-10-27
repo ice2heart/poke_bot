@@ -14,7 +14,8 @@ before:
     - go generate ./...
 
 builds:
-  - env:
+  - main: ./cmd/poke_bot
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
