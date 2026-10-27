@@ -26,6 +26,7 @@ A Telegram moderation bot for group chats that lets the community vote to ban, m
 | `/best` | Show the chat's top-rated members |
 | `/check` | Check a user's current score/status |
 | `/delete` | Delete a message (admin only) |
+| `/clear_reactions` | Remove a user's recent reactions in the chat; reply to their message or pass `@username`/user ID (admin only) |
 | `/start` | Bot greeting/info |
 | `/test` | Debug/test command |
 

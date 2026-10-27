@@ -163,6 +163,14 @@ func (a *App) banUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 
 	if result {
 		a.reactionCache.Delete(reactionKey{chatID: s.ChatID, userID: s.UserID})
+		// Also strip the banned user's reactions so they stop counting. A ban
+		// through the MTProto username fallback may have no numeric ID.
+		if s.UserID == 0 {
+			return result
+		}
+		if ok, err := clearUserReactions(ctx, b, s.ChatID, s.UserID); err != nil || !ok {
+			zap.S().Infof("[banUser] clearUserReactions failed: userID=%d chatID=%d: %v", s.UserID, s.ChatID, err)
+		}
 	}
 	return result
 }

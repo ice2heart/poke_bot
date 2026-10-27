@@ -164,6 +164,7 @@ func Run(ctx context.Context, cfg Config) {
 	a.bot.RegisterHandler(bot.HandlerTypeMessageText, "/set_channel", bot.MatchTypePrefix, a.setChannelHandler)
 	a.bot.RegisterHandler(bot.HandlerTypeMessageText, "/add_pattern", bot.MatchTypePrefix, a.addPatternHandler)
 	a.bot.RegisterHandler(bot.HandlerTypeMessageText, "/del_pattern", bot.MatchTypePrefix, a.delPatternHandler)
+	a.bot.RegisterHandler(bot.HandlerTypeMessageText, "/clear_reactions", bot.MatchTypePrefix, a.clearReactionsHandler)
 	a.bot.RegisterHandler(bot.HandlerTypeMessageText, "/likes", bot.MatchTypePrefix, a.likesHandler)
 	a.bot.RegisterHandler(bot.HandlerTypeMessageText, "/best", bot.MatchTypePrefix, a.bestHandler)
 	a.bot.RegisterHandler(bot.HandlerTypeMessageText, "/set_tag", bot.MatchTypePrefix, setTagHandler)
