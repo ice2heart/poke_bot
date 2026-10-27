@@ -3,7 +3,6 @@ package main
 import (
 	"testing"
 
-	"github.com/go-telegram/bot/models"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -69,53 +68,4 @@ func TestCccpRegex(t *testing.T) {
 			assert.Equal(t, tt.want, cccpRegex.MatchString(tt.text), "text=%q", tt.text)
 		})
 	}
-}
-
-func TestCccpImageEmbedded(t *testing.T) {
-	assert.NotEmpty(t, cccpImage, "cccp.jpg must be embedded in the binary")
-	assert.Equal(t, []byte{0xFF, 0xD8, 0xFF}, cccpImage[:3], "expected JPEG magic bytes")
-}
-
-func TestCccpLoadFileIDReadsPersistedSetting(t *testing.T) {
-	// settings and the process cache are package globals; restore both so this
-	// test cannot leak into others.
-	origSettings := settings
-	t.Cleanup(func() {
-		settings = origSettings
-		cccpFileIDMem.mu.Lock()
-		cccpFileIDMem.id = ""
-		cccpFileIDMem.mu.Unlock()
-	})
-
-	cccpFileIDMem.mu.Lock()
-	cccpFileIDMem.id = ""
-	cccpFileIDMem.mu.Unlock()
-
-	// A chat with no stored id must not produce one.
-	settings = map[int64]*DynamicSetting{
-		-100: {ChatID: -100},
-	}
-	assert.Equal(t, "", cccpLoadFileID(t.Context()))
-
-	// Once any chat has recorded an id, it serves every chat.
-	settings = map[int64]*DynamicSetting{
-		-100: {ChatID: -100},
-		-200: {ChatID: -200, CccpFileID: "STORED_FILE_ID"},
-	}
-	assert.Equal(t, "STORED_FILE_ID", cccpLoadFileID(t.Context()))
-
-	// The value is now in the process cache: it survives the settings map
-	// losing it, which is what makes the common path Mongo-free.
-	settings = map[int64]*DynamicSetting{}
-	assert.Equal(t, "STORED_FILE_ID", cccpLoadFileID(t.Context()))
-}
-
-func TestCccpPhotoSelectsPayload(t *testing.T) {
-	upload, ok := cccpPhoto("").(*models.InputFileUpload)
-	assert.True(t, ok, "an empty file_id must produce a multipart upload")
-	assert.Equal(t, cccpImageFilename, upload.Filename)
-
-	ref, ok := cccpPhoto("CACHED_ID").(*models.InputFileString)
-	assert.True(t, ok, "a known file_id must produce a file_id reference")
-	assert.Equal(t, "CACHED_ID", ref.Data)
 }

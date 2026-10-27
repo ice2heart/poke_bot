@@ -98,7 +98,7 @@ func muteUser(ctx context.Context, b *bot.Bot, s *BanInfo) bool {
 
 		var notifyErr error
 		if s.Cccp {
-			_, notifyErr = sendCccpPhoto(ctx, b, s.ChatID, &bot.SendPhotoParams{
+			_, notifyErr = sendImage(ctx, b, "cccp", s.ChatID, &bot.SendPhotoParams{
 				ChatID:          s.ChatID,
 				Caption:         notifyText,
 				ParseMode:       models.ParseModeMarkdown,

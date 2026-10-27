@@ -81,11 +81,11 @@ type DynamicSetting struct {
 	// BanPatterns are case-insensitive regexps; a message matching any of them
 	// automatically starts a ban vote against its author.
 	BanPatterns []string
-	// CccpFileID is the Telegram file_id for cccp.jpg, uploaded once and reused.
-	// A file_id is valid for the bot in every chat, so this is logically global —
-	// it lives here to reuse the settings plumbing, and whichever chat recorded
-	// it serves all of them.
-	CccpFileID string
+	// FileIDs caches the Telegram file_id of each embedded image, keyed by its
+	// registry name (see images in embedded_images.go). A file_id is valid for
+	// the bot in every chat, so these are logically global — they live here to
+	// reuse the settings plumbing, and whichever chat recorded one serves all.
+	FileIDs map[string]string
 }
 
 func initDb(ctx context.Context, connectionLine string, dbName string) {
