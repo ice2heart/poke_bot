@@ -444,7 +444,7 @@ func (a *App) renderLikesPage(ctx context.Context, chatID int64, page int) (text
 	})
 
 	if len(entries) == 0 {
-		return "Реакций пока нет", nil
+		return "Реакций пока нет", emptyInlineKeyboard()
 	}
 
 	pageCount := (len(entries) + likesTopN - 1) / likesTopN

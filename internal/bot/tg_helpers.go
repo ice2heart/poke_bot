@@ -234,9 +234,16 @@ func getLikesKeyboard(chatID int64, page int, hasPrev bool, hasNext bool) *model
 		}
 	}
 	if len(row) == 0 {
-		return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{}}
+		return emptyInlineKeyboard()
 	}
 	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{row}}
+}
+
+// emptyInlineKeyboard returns a non-nil keyboard with no buttons. Use it instead
+// of a nil *InlineKeyboardMarkup: a typed nil wrapped in the ReplyMarkup
+// interface is serialized as "reply_markup":null, which Telegram rejects.
+func emptyInlineKeyboard() *models.InlineKeyboardMarkup {
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{}}
 }
 
 func getChatName(ctx context.Context, b *bot.Bot, chatID int64) string {
