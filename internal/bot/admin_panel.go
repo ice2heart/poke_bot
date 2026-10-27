@@ -289,16 +289,34 @@ func (a *App) actionCallbackHandler(ctx context.Context, b *bot.Bot, update *mod
 			page := int(tgutil.GetInt(pageRaw))
 			zap.S().Infof("[actionCallbackHandler] ACTION_LIKES_PAGE: chatID=%d page=%d by userID=%d", data.ChatID, page, update.CallbackQuery.From.ID)
 
+			msg := update.CallbackQuery.Message.Message
+			if msg == nil {
+				zap.S().Infof("[actionCallbackHandler] ACTION_LIKES_PAGE: message is inaccessible, chatID=%d", data.ChatID)
+				return
+			}
 			text, kb := a.renderLikesPage(ctx, data.ChatID, page)
-			_, err := b.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID:      update.CallbackQuery.Message.Message.Chat.ID,
-				MessageID:   update.CallbackQuery.Message.Message.ID,
-				Text:        text,
-				ParseMode:   models.ParseModeMarkdown,
-				ReplyMarkup: kb,
-			})
+			var err error
+			if msg.EphemeralMessageID != 0 {
+				// Ephemeral pages can only be edited with the ephemeral API.
+				_, err = b.EditEphemeralMessageText(ctx, &bot.EditEphemeralMessageTextParams{
+					ChatID:             msg.Chat.ID,
+					ReceiverUserID:     update.CallbackQuery.From.ID,
+					EphemeralMessageID: msg.EphemeralMessageID,
+					Text:               text,
+					ParseMode:          models.ParseModeMarkdown,
+					ReplyMarkup:        kb,
+				})
+			} else {
+				_, err = b.EditMessageText(ctx, &bot.EditMessageTextParams{
+					ChatID:      msg.Chat.ID,
+					MessageID:   msg.ID,
+					Text:        text,
+					ParseMode:   models.ParseModeMarkdown,
+					ReplyMarkup: kb,
+				})
+			}
 			if err != nil {
-				zap.S().Infof("[actionCallbackHandler] ACTION_LIKES_PAGE: EditMessageText failed: %v", err)
+				zap.S().Infof("[actionCallbackHandler] ACTION_LIKES_PAGE: edit failed: %v", err)
 			}
 		}
 	case tgutil.ACTION_LEAVE_CHAT:

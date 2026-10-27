@@ -75,7 +75,7 @@ func (a *App) makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 				tgutil.Escape(fmt.Sprintf(
 					"Укажите ссылку на сообщение или пользователя.\nПримеры:\n/%s https://t.me/c/1657123097/2854347\n/%s @username\n/%s https://t.me/channelname/123?comment=456",
 					cfg.command, cfg.command, cfg.command,
-				)), true, 30)
+				)), true, 30, ephemeralFor(update.Message))
 			return
 		}
 
@@ -111,7 +111,7 @@ func (a *App) makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 					zap.S().Infof("[%sHandler] getByUsername failed for username=%q in chatID=%d: %v",
 						cfg.command, username, chatId, err)
 					systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
-						tgutil.Escape(fmt.Sprintf("Пользователь @%v не найден", username)), true, 30)
+						tgutil.Escape(fmt.Sprintf("Пользователь @%v не найден", username)), true, 30, ephemeralFor(update.Message))
 					continue
 				}
 
@@ -141,7 +141,7 @@ func (a *App) makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 					banInfo, err = cfg.getByMessage(ctx, chatId, chatLink.TargetMessageID)
 					if err != nil {
 						systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
-							tgutil.Escape(fmt.Sprintf("Сообщение не найдено. Используйте альтернативный метод: /%s @username", cfg.command)), true, 30)
+							tgutil.Escape(fmt.Sprintf("Сообщение не найдено. Используйте альтернативный метод: /%s @username", cfg.command)), true, 30, ephemeralFor(update.Message))
 						continue
 					}
 					banInfo.TargetMessageID = chatLink.TargetMessageID
@@ -163,7 +163,7 @@ func (a *App) makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 			if cfg.checkRecentCache {
 				if a.banCache.getCachedBanInfo(banInfo.ChatID, banInfo.UserID) {
 					systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
-						"Пользователь уже был заблокирован недавно", true, 30)
+						"Пользователь уже был заблокирован недавно", true, 30, ephemeralFor(update.Message))
 					continue
 				}
 			}

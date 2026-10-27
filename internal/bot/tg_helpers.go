@@ -274,55 +274,46 @@ func getAdmins(ctx context.Context, b *bot.Bot, chat int64) (ret map[int64]bool,
 }
 
 // systemMessage sends a message to chatId and auto-deletes it after delaySec seconds.
-func systemMessage(ctx context.Context, b *bot.Bot, chatID int64, text string, delaySec int64) {
-	sent, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:             chatID,
+// Pass ephemeralTo(userID) to show it to a single user only.
+func systemMessage(ctx context.Context, b *bot.Bot, chatID int64, text string, delaySec int64, opts ...sendOption) {
+	sent, err := sendSystem(ctx, b, chatID, 0, &bot.SendMessageParams{
 		Text:               text,
 		ParseMode:          models.ParseModeMarkdown,
 		LinkPreviewOptions: &models.LinkPreviewOptions{IsDisabled: bot.True()},
-	})
+	}, resolveSendConfig(opts))
 	if err != nil {
 		zap.S().Infof("[systemMessage] SendMessage failed: chatID=%d: %v", chatID, err)
 		return
 	}
-	sentID := sent.ID
 	go delay(ctx, delaySec, func() {
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    chatID,
-			MessageID: sentID,
-		})
+		sent.delete(ctx, b)
 	})
 }
 
-func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messageId int, text string, deleteOrigin bool, delaySec int64) {
-
-	reply, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    chatId,
+// systemAnswerToMessage replies to messageId and auto-deletes the reply (and
+// optionally the original) after delaySec seconds. Pass ephemeralFor(msg) or
+// ephemeralTo(userID) to show the reply to a single user only.
+func systemAnswerToMessage(ctx context.Context, b *bot.Bot, chatId int64, messageId int, text string, deleteOrigin bool, delaySec int64, opts ...sendOption) {
+	cfg := resolveSendConfig(opts)
+	reply, err := sendSystem(ctx, b, chatId, messageId, &bot.SendMessageParams{
 		Text:      text,
 		ParseMode: models.ParseModeMarkdown,
-		ReplyParameters: &models.ReplyParameters{
-			ChatID:    chatId,
-			MessageID: messageId,
-		},
-	})
+	}, cfg)
 	if err != nil {
 		zap.S().Infof("[systemAnswerToMessage] SendMessage failed: chatID=%d messageID=%d: %v", chatId, messageId, err)
 		return
 	}
-	removeChatID := chatId
-	removeReplyID := reply.ID
-	removeOriginalID := messageId
+	origin := sentRef{chatID: chatId, messageID: messageId}
+	if cfg.originEphemeralID != 0 {
+		// An ephemeral command can't be deleted and its message_id would
+		// address some unrelated regular message.
+		origin.messageID = 0
+	}
 	go delay(ctx, delaySec, func() {
 		if deleteOrigin {
-			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-				ChatID:    removeChatID,
-				MessageID: removeOriginalID,
-			})
+			origin.delete(ctx, b)
 		}
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    removeChatID,
-			MessageID: removeReplyID,
-		})
+		reply.delete(ctx, b)
 	})
 }
 
@@ -378,7 +369,7 @@ func deleteAllMessages(ctx context.Context, b *bot.Bot, chatId int64, userId int
 	return true, nil
 }
 
-func (a *App) isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, messageChatID int64, messageID int) bool {
+func (a *App) isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID int64, messageChatID int64, messageID int, opts ...sendOption) bool {
 	if userID == a.superAdminID {
 		return true
 	}
@@ -390,7 +381,8 @@ func (a *App) isUserAdmin(ctx context.Context, b *bot.Bot, chatID int64, userID 
 	_, rep := chatAdmins[userID]
 	if !rep {
 		zap.S().Infof("[isUserAdmin] unauthorized admin action: userID=%d in chatID=%d", userID, chatID)
-		systemAnswerToMessage(ctx, b, messageChatID, messageID, tgutil.Escape("Недостаточно прав. Необходимо быть администратором чата."), true, 30)
+		systemAnswerToMessage(ctx, b, messageChatID, messageID, tgutil.Escape("Недостаточно прав. Необходимо быть администратором чата."), true, 30,
+			append([]sendOption{ephemeralTo(userID)}, opts...)...)
 		return false
 	}
 	return true

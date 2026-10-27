@@ -71,7 +71,7 @@ func (a *App) checkForDuplicates(ctx context.Context, chatId int64, userid int64
 
 	if result.decided {
 		// The vote is over and its message is gone: nothing left to point at.
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: chatId, MessageID: update.Message.ID})
+		deleteCommand(ctx, b, update.Message)
 		return true
 	}
 
@@ -82,7 +82,7 @@ func (a *App) checkForDuplicates(ctx context.Context, chatId int64, userid int64
 	} else if result.answer != "" {
 		text = fmt.Sprintf("%s\n%s", tgutil.Escape(result.answer), text)
 	}
-	systemAnswerToMessage(ctx, b, chatId, update.Message.ID, text, true, 30)
+	systemAnswerToMessage(ctx, b, chatId, update.Message.ID, text, true, 30, ephemeralFor(update.Message))
 	return true
 }
 
@@ -142,7 +142,7 @@ func (a *App) makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot)
 }
 
 func onPauseMessage(ctx context.Context, b *bot.Bot, message *models.Message) {
-	systemAnswerToMessage(ctx, b, message.Chat.ID, message.ID, fmt.Sprintf("[%s %s](tg://user?id=%d), бот в данный момент приостановлен", message.From.FirstName, message.From.LastName, message.From.ID), true, 30)
+	systemAnswerToMessage(ctx, b, message.Chat.ID, message.ID, fmt.Sprintf("[%s %s](tg://user?id=%d), бот в данный момент приостановлен", message.From.FirstName, message.From.LastName, message.From.ID), true, 30, ephemeralFor(message))
 }
 
 func (a *App) voteCallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {

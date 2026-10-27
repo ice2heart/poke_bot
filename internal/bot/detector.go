@@ -251,7 +251,7 @@ func parsePatternArg(arg string) string {
 func (a *App) addPatternHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatID := update.Message.Chat.ID
 	msgID := update.Message.ID
-	if !a.isUserAdmin(ctx, b, chatID, update.Message.From.ID, chatID, msgID) {
+	if !a.isUserAdmin(ctx, b, chatID, update.Message.From.ID, chatID, msgID, ephemeralFor(update.Message)) {
 		return
 	}
 
@@ -260,11 +260,11 @@ func (a *App) addPatternHandler(ctx context.Context, b *bot.Bot, update *models.
 		pattern = parsePatternArg(parts[1])
 	}
 	if pattern == "" {
-		systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape("Использование: /add_pattern <регулярное выражение> или /add_pattern \"точная фраза\""), true, 30)
+		systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape("Использование: /add_pattern <регулярное выражение> или /add_pattern \"точная фраза\""), true, 30, ephemeralFor(update.Message))
 		return
 	}
 	if _, err := regexp.Compile("(?i)" + pattern); err != nil {
-		systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape(fmt.Sprintf("Некорректное регулярное выражение: %v", err)), true, 30)
+		systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape(fmt.Sprintf("Некорректное регулярное выражение: %v", err)), true, 30, ephemeralFor(update.Message))
 		return
 	}
 
@@ -278,11 +278,11 @@ func (a *App) addPatternHandler(ctx context.Context, b *bot.Bot, update *models.
 	a.settingsMux.Unlock()
 
 	if exists {
-		systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape("Такой паттерн уже добавлен"), true, 30)
+		systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape("Такой паттерн уже добавлен"), true, 30, ephemeralFor(update.Message))
 		return
 	}
 	zap.S().Infof("[addPatternHandler] chatID=%d pattern=%q added by userID=%d", chatID, pattern, update.Message.From.ID)
-	systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape(fmt.Sprintf("Паттерн добавлен: %s", pattern)), true, 30)
+	systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape(fmt.Sprintf("Паттерн добавлен: %s", pattern)), true, 30, ephemeralFor(update.Message))
 }
 
 // delPatternHandler removes a ban-trigger regexp by its 1-based index.
@@ -291,7 +291,7 @@ func (a *App) addPatternHandler(ctx context.Context, b *bot.Bot, update *models.
 func (a *App) delPatternHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatID := update.Message.Chat.ID
 	msgID := update.Message.ID
-	if !a.isUserAdmin(ctx, b, chatID, update.Message.From.ID, chatID, msgID) {
+	if !a.isUserAdmin(ctx, b, chatID, update.Message.From.ID, chatID, msgID, ephemeralFor(update.Message)) {
 		return
 	}
 
@@ -301,7 +301,7 @@ func (a *App) delPatternHandler(ctx context.Context, b *bot.Bot, update *models.
 	a.settingsMux.Unlock()
 
 	if len(patterns) == 0 {
-		systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape("Паттерны не настроены"), true, 30)
+		systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape("Паттерны не настроены"), true, 30, ephemeralFor(update.Message))
 		return
 	}
 
@@ -315,7 +315,7 @@ func (a *App) delPatternHandler(ctx context.Context, b *bot.Bot, update *models.
 		for i, p := range patterns {
 			lines = append(lines, fmt.Sprintf("%d. %s", i+1, p))
 		}
-		systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape(strings.Join(lines, "\n")), true, 60)
+		systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape(strings.Join(lines, "\n")), true, 60, ephemeralFor(update.Message))
 		return
 	}
 
@@ -330,7 +330,7 @@ func (a *App) delPatternHandler(ctx context.Context, b *bot.Bot, update *models.
 	a.settingsMux.Unlock()
 
 	zap.S().Infof("[delPatternHandler] chatID=%d pattern=%q removed by userID=%d", chatID, removed, update.Message.From.ID)
-	systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape(fmt.Sprintf("Паттерн удалён: %s", removed)), true, 30)
+	systemAnswerToMessage(ctx, b, chatID, msgID, tgutil.Escape(fmt.Sprintf("Паттерн удалён: %s", removed)), true, 30, ephemeralFor(update.Message))
 }
 
 // startDetector runs the detection loop in a goroutine; exits when ctx is cancelled.
@@ -487,31 +487,24 @@ func (a *App) renderLikesPage(ctx context.Context, chatID int64, page int) (text
 
 func (a *App) likesHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatID := update.Message.Chat.ID
-	msgID := update.Message.ID
 
-	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    chatID,
-		MessageID: msgID,
-	})
+	deleteCommand(ctx, b, update.Message)
 
 	text, kb := a.renderLikesPage(ctx, chatID, 0)
 
-	sent, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:      chatID,
+	// The leaderboard is shown only to the requester; sendSystem falls back to
+	// a public message (private chat, anonymous sender, API refusal).
+	sent, err := sendSystem(ctx, b, chatID, 0, &bot.SendMessageParams{
 		Text:        text,
 		ParseMode:   models.ParseModeMarkdown,
 		ReplyMarkup: kb,
-	})
+	}, resolveSendConfig([]sendOption{ephemeralFor(update.Message)}))
 	if err != nil {
 		zap.S().Infof("[likesHandler] SendMessage failed chatID=%d: %v", chatID, err)
 		return
 	}
-	sentID := sent.ID
 	go delay(ctx, 5*60, func() {
-		b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    chatID,
-			MessageID: sentID,
-		})
+		sent.delete(ctx, b)
 	})
 }
 

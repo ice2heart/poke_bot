@@ -17,7 +17,7 @@ func (a *App) bestHandler(ctx context.Context, b *bot.Bot, update *models.Update
 	chatID := update.Message.Chat.ID
 	userID := update.Message.From.ID
 
-	if !a.isUserAdmin(ctx, b, chatID, userID, chatID, update.Message.ID) {
+	if !a.isUserAdmin(ctx, b, chatID, userID, chatID, update.Message.ID, ephemeralFor(update.Message)) {
 		return
 	}
 
@@ -44,13 +44,10 @@ func (a *App) bestHandler(ctx context.Context, b *bot.Bot, update *models.Update
 		}
 	}
 
-	b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    chatID,
-		MessageID: update.Message.ID,
-	})
+	deleteCommand(ctx, b, update.Message)
 
 	if len(lines) == 0 {
-		systemMessage(ctx, b, chatID, "Нет данных", 30)
+		systemMessage(ctx, b, chatID, "Нет данных", 30, ephemeralFor(update.Message))
 		return
 	}
 
@@ -120,7 +117,7 @@ func (a *App) checkHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 		user, err = storage.GetUser(ctx, userID)
 	}
 	if err != nil || user == nil {
-		systemAnswerToMessage(ctx, b, chatID, messageID, "Пользователь не найден", true, 30)
+		systemAnswerToMessage(ctx, b, chatID, messageID, "Пользователь не найден", true, 30, ephemeralFor(update.Message))
 		return
 	}
 
@@ -128,7 +125,7 @@ func (a *App) checkHandler(ctx context.Context, b *bot.Bot, update *models.Updat
 	if err != nil {
 		zap.S().Infof("[checkHandler] getUserLastNthMessages failed for userID=%d chatID=%d: %v", user.Uid, chatID, err)
 	}
-	systemAnswerToMessage(ctx, b, chatID, messageID, formatCheckReport(user, messages), true, 60)
+	systemAnswerToMessage(ctx, b, chatID, messageID, formatCheckReport(user, messages), true, 60, ephemeralFor(update.Message))
 }
 
 const CUSTOM_TAG_MAX_LENGTH = 16
@@ -138,7 +135,7 @@ func setTagHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	messageID := update.Message.ID
 
 	if update.Message.SenderChat != nil {
-		systemAnswerToMessage(ctx, b, chatID, messageID, tgutil.Escape("Команда недоступна для каналов."), true, 30)
+		systemAnswerToMessage(ctx, b, chatID, messageID, tgutil.Escape("Команда недоступна для каналов."), true, 30, ephemeralFor(update.Message))
 		return
 	}
 	userID := update.Message.From.ID
@@ -146,7 +143,7 @@ func setTagHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	_, tag, _ := strings.Cut(update.Message.Text, " ")
 	tag = strings.TrimSpace(tag)
 	if utf8.RuneCountInString(tag) > CUSTOM_TAG_MAX_LENGTH {
-		systemAnswerToMessage(ctx, b, chatID, messageID, tgutil.Escape(fmt.Sprintf("Слишком длинный тег, максимум %d символов.", CUSTOM_TAG_MAX_LENGTH)), true, 30)
+		systemAnswerToMessage(ctx, b, chatID, messageID, tgutil.Escape(fmt.Sprintf("Слишком длинный тег, максимум %d символов.", CUSTOM_TAG_MAX_LENGTH)), true, 30, ephemeralFor(update.Message))
 		return
 	}
 
@@ -156,13 +153,13 @@ func setTagHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if score != nil {
 			rating = score.Rating
 		}
-		systemAnswerToMessage(ctx, b, chatID, messageID, tgutil.Escape(fmt.Sprintf("Недостаточно рейтинга: %d. Необходимо больше %d.", rating, storage.CUSTOM_TAG_MIN_RATING)), true, 30)
+		systemAnswerToMessage(ctx, b, chatID, messageID, tgutil.Escape(fmt.Sprintf("Недостаточно рейтинга: %d. Необходимо больше %d.", rating, storage.CUSTOM_TAG_MIN_RATING)), true, 30, ephemeralFor(update.Message))
 		return
 	}
 
 	if err := storage.UserSetCustomTag(ctx, userID, tag); err != nil {
 		zap.S().Infof("[setTagHandler] userSetCustomTag failed for userID=%d: %v", userID, err)
-		systemAnswerToMessage(ctx, b, chatID, messageID, tgutil.Escape("Не удалось сохранить тег, попробуйте позже."), true, 30)
+		systemAnswerToMessage(ctx, b, chatID, messageID, tgutil.Escape("Не удалось сохранить тег, попробуйте позже."), true, 30, ephemeralFor(update.Message))
 		return
 	}
 
@@ -182,5 +179,5 @@ func setTagHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if err != nil {
 		zap.S().Infof("[setTagHandler] SetChatMemberTag failed: userID=%d chatID=%d: %v", userID, chatID, err)
 	}
-	systemAnswerToMessage(ctx, b, chatID, messageID, answer, true, 30)
+	systemAnswerToMessage(ctx, b, chatID, messageID, answer, true, 30, ephemeralFor(update.Message))
 }
