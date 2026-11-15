@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -67,10 +68,11 @@ func ensureIndexes(ctx context.Context) {
 	}
 
 	// messages: {chatid, messageid} — GetMessageInfo / UpdateMessage
-	if _, err := chatMessages.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.D{{Key: "chatid", Value: 1}, {Key: "messageid", Value: 1}},
-	}); err != nil {
-		zap.S().Infof("[ensureIndexes] messages.{chatid,messageid} index: %v", err)
+	messagesKeys := bson.D{{Key: "chatid", Value: 1}, {Key: "messageid", Value: 1}}
+	if _, err := chatMessages.Indexes().CreateOne(ctx, mongo.IndexModel{Keys: messagesKeys}); err != nil {
+		if !unhideIndex(ctx, chatMessages, messagesKeys, err) {
+			zap.S().Infof("[ensureIndexes] messages.{chatid,messageid} index: %v", err)
+		}
 	}
 
 	// messages: {chatid, userid, date} — GetUserLastNthMessages (filter + sort)
@@ -110,6 +112,42 @@ func ensureIndexes(ctx context.Context) {
 	}
 
 	zap.S().Info("[ensureIndexes] done")
+}
+
+// errIndexOptionsConflict is the server code for an index that exists under the
+// same name with different options.
+const errIndexOptionsConflict = 85
+
+// unhideIndex handles an IndexOptionsConflict caused by the existing index being
+// hidden (e.g. after restoring a dump taken while it was hidden). A hidden index
+// is maintained but ignored by the query planner, so it is made visible again.
+// It reports whether the conflict was resolved.
+func unhideIndex(ctx context.Context, coll *mongo.Collection, keys bson.D, createErr error) bool {
+	var se mongo.ServerError
+	if !errors.As(createErr, &se) || !se.HasErrorCode(errIndexOptionsConflict) {
+		return false
+	}
+	name := defaultIndexName(keys)
+	cmd := bson.D{
+		{Key: "collMod", Value: coll.Name()},
+		{Key: "index", Value: bson.D{{Key: "name", Value: name}, {Key: "hidden", Value: false}}},
+	}
+	if err := coll.Database().RunCommand(ctx, cmd).Err(); err != nil {
+		zap.S().Infof("[ensureIndexes] %s.%s: unhiding index failed: %v (create error: %v)", coll.Name(), name, err, createErr)
+		return false
+	}
+	zap.S().Infof("[ensureIndexes] %s.%s: existing index was hidden, made it visible", coll.Name(), name)
+	return true
+}
+
+// defaultIndexName builds the name MongoDB gives an index with these keys,
+// e.g. "chatid_1_messageid_1".
+func defaultIndexName(keys bson.D) string {
+	parts := make([]string, 0, len(keys)*2)
+	for _, k := range keys {
+		parts = append(parts, k.Key, fmt.Sprint(k.Value))
+	}
+	return strings.Join(parts, "_")
 }
 
 // SaveReaction inserts a reaction record into the reactions collection.

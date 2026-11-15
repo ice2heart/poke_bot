@@ -70,6 +70,11 @@ type App struct {
 
 	sessionsMux sync.Mutex
 	sessions    map[int64]map[int64]*BanInfo
+	// pendingVotes reserves a (chat, target user) pair while its vote message
+	// is being sent, so concurrent requests cannot each start their own vote.
+	// The channel is closed once the vote is registered or creation fails.
+	// Guarded by sessionsMux.
+	pendingVotes map[voteKey]chan struct{}
 
 	banCache *banInfoCache
 
@@ -92,6 +97,7 @@ func newApp(ctx context.Context, superAdminID int64) *App {
 	a := &App{
 		superAdminID: superAdminID,
 		sessions:     make(map[int64]map[int64]*BanInfo),
+		pendingVotes: make(map[voteKey]chan struct{}),
 		banCache:     newBanInfoCache(ctx),
 		detectorCh:   make(chan *models.Update, 128),
 		patterns:     newPatternCache(),

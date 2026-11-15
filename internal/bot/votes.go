@@ -47,18 +47,77 @@ func (a *App) findSessionByUser(chatId int64, userid int64) (*BanInfo, map[int64
 	return nil, chatSessions, 0
 }
 
+// voteKey identifies the target of a vote within a chat.
+type voteKey struct {
+	chatID int64
+	userID int64
+}
+
+// reserveVoteLocked claims the right to create a vote against userid in the
+// chat. It fails if a vote is already running or another request is creating
+// one; in the latter case the returned channel is closed once that request
+// finishes. Caller must hold sessionsMux. A successful reservation must end in
+// makeVoteMessage or releaseVoteReservation.
+func (a *App) reserveVoteLocked(chatId, userid int64) (bool, <-chan struct{}) {
+	if s, _, _ := a.findSessionByUser(chatId, userid); s != nil {
+		return false, nil
+	}
+	key := voteKey{chatId, userid}
+	if ch, ok := a.pendingVotes[key]; ok {
+		return false, ch
+	}
+	a.pendingVotes[key] = make(chan struct{})
+	return true, nil
+}
+
+// releaseVoteReservationLocked drops the reservation for (chatId, userid) and
+// wakes requests waiting on it. Caller must hold sessionsMux.
+func (a *App) releaseVoteReservationLocked(chatId, userid int64) {
+	key := voteKey{chatId, userid}
+	if ch, ok := a.pendingVotes[key]; ok {
+		close(ch)
+		delete(a.pendingVotes, key)
+	}
+}
+
+// releaseVoteReservation drops a reservation that will not become a vote.
+func (a *App) releaseVoteReservation(chatId, userid int64) {
+	a.sessionsMux.Lock()
+	a.releaseVoteReservationLocked(chatId, userid)
+	a.sessionsMux.Unlock()
+}
+
 // checkForDuplicates reports whether a vote against userid is already running in
 // the chat. A repeated command is not rejected outright: it counts as an upvote
 // from voterID on the existing vote, which may decide it right away. When the
 // vote is still running afterwards, the caller is answered with a link to it.
+//
+// If another request is creating a vote for the same user right now, it waits
+// for that request to finish and then counts as a repeated command.
+//
+// When it returns false the caller holds a vote reservation (see
+// reserveVoteLocked) and must call makeVoteMessage or releaseVoteReservation.
 func (a *App) checkForDuplicates(ctx context.Context, chatId int64, userid int64, voterID int64, b *bot.Bot, update *models.Update) bool {
 	a.sessionsMux.Lock()
+	for {
+		reserved, wait := a.reserveVoteLocked(chatId, userid)
+		if reserved {
+			a.sessionsMux.Unlock()
+			return false
+		}
+		if wait == nil {
+			break // a vote is running
+		}
+		a.sessionsMux.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return true
+		}
+		a.sessionsMux.Lock()
+	}
 
 	s, chatSessions, msgID := a.findSessionByUser(chatId, userid)
-	if s == nil {
-		a.sessionsMux.Unlock()
-		return false
-	}
 
 	// A repeated command is an upvote from the requester, but it must never flip
 	// or double-count a vote they already cast on the button.
@@ -86,6 +145,8 @@ func (a *App) checkForDuplicates(ctx context.Context, chatId int64, userid int64
 	return true
 }
 
+// makeVoteMessage sends the vote message and registers the session. The caller
+// must hold the vote reservation for banInfo's target; it is released here.
 func (a *App) makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot) bool {
 	// голосуем за бан @пользователя необходимо Н голосов
 	//  Последнее сообщение: тут текст
@@ -109,6 +170,7 @@ func (a *App) makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot)
 	responseMessage, err := b.SendMessage(ctx, params)
 	if err != nil {
 		zap.S().Infof("[makeVoteMessage] SendMessage failed: userID=%d chatID=%d type=%d: %v", banInfo.UserID, banInfo.ChatID, banInfo.Type, err)
+		a.releaseVoteReservation(banInfo.ChatID, banInfo.UserID)
 		return false
 	}
 	zap.S().Infof("[makeVoteMessage] vote message sent: messageID=%d chatID=%d userID=%d", responseMessage.ID, banInfo.ChatID, banInfo.UserID)
@@ -125,6 +187,8 @@ func (a *App) makeVoteMessage(ctx context.Context, banInfo *BanInfo, b *bot.Bot)
 	banInfo.VoteMessageID = int64(responseMessage.ID)
 	banInfo.CreatedAt = time.Now()
 	chatSessions[int64(responseMessage.ID)] = banInfo
+	// Registered under the same lock, so waiters see the session on wake-up.
+	a.releaseVoteReservationLocked(banInfo.ChatID, banInfo.UserID)
 
 	pinChatID := banInfo.ChatID
 	pinMessageID := responseMessage.ID

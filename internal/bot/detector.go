@@ -194,10 +194,15 @@ func (a *App) processDetectorMessage(ctx context.Context, b *bot.Bot, msg *model
 		return
 	}
 
+	if a.banCache.getCachedBanInfo(msg.Chat.ID, userID) {
+		return
+	}
+	// Reserve the target so a concurrent /ban (or a second matching message)
+	// cannot start a parallel vote while this one is being sent.
 	a.sessionsMux.Lock()
-	running, _, _ := a.findSessionByUser(msg.Chat.ID, userID)
+	reserved, _ := a.reserveVoteLocked(msg.Chat.ID, userID)
 	a.sessionsMux.Unlock()
-	if running != nil || a.banCache.getCachedBanInfo(msg.Chat.ID, userID) {
+	if !reserved {
 		return
 	}
 
@@ -207,6 +212,7 @@ func (a *App) processDetectorMessage(ctx context.Context, b *bot.Bot, msg *model
 	banInfo, err := a.getBanInfoByUserID(ctx, msg.Chat.ID, userID)
 	if err != nil {
 		zap.S().Infof("[detector] getBanInfoByUserID failed for userID=%d chatID=%d: %v", userID, msg.Chat.ID, err)
+		a.releaseVoteReservation(msg.Chat.ID, userID)
 		return
 	}
 	banInfo.TargetMessageID = int64(msg.ID)

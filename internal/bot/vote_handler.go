@@ -162,6 +162,7 @@ func (a *App) makeVoteHandler(cfg voteHandlerConfig) bot.HandlerFunc {
 
 			if cfg.checkRecentCache {
 				if a.banCache.getCachedBanInfo(banInfo.ChatID, banInfo.UserID) {
+					a.releaseVoteReservation(banInfo.ChatID, banInfo.UserID)
 					systemAnswerToMessage(ctx, b, chatId, update.Message.ID,
 						"Пользователь уже был заблокирован недавно", true, 30, ephemeralFor(update.Message))
 					continue

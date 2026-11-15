@@ -2,6 +2,8 @@ package bot
 
 import (
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -337,5 +339,63 @@ func TestVoteExpiredText(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, voteExpiredText(tt.userName, tt.profileName, tt.userID))
 		})
+	}
+}
+
+// TestReserveVoteConcurrent checks that concurrent requests against the same
+// user get exactly one reservation, and that waiters wake once it is released.
+func TestReserveVoteConcurrent(t *testing.T) {
+	a := &App{
+		sessions:     map[int64]map[int64]*BanInfo{},
+		pendingVotes: map[voteKey]chan struct{}{},
+	}
+	const n = 50
+	var wg sync.WaitGroup
+	var winners atomic.Int32
+	waits := make(chan (<-chan struct{}), n)
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.sessionsMux.Lock()
+			ok, wait := a.reserveVoteLocked(-100, 42)
+			a.sessionsMux.Unlock()
+			if ok {
+				winners.Add(1)
+			} else {
+				waits <- wait
+			}
+		}()
+	}
+	wg.Wait()
+	close(waits)
+	if got := winners.Load(); got != 1 {
+		t.Fatalf("reservations granted = %d, want 1", got)
+	}
+
+	// A different user in the same chat is independent.
+	a.sessionsMux.Lock()
+	ok, _ := a.reserveVoteLocked(-100, 43)
+	a.sessionsMux.Unlock()
+	if !ok {
+		t.Fatal("reservation for another user was refused")
+	}
+
+	a.releaseVoteReservation(-100, 42)
+	for w := range waits {
+		select {
+		case <-w:
+		default:
+			t.Fatal("waiter not woken after release")
+		}
+	}
+
+	// A registered session blocks new reservations without a wait channel.
+	a.sessions[-100] = map[int64]*BanInfo{7: {BanLogRecord: storage.BanLogRecord{UserID: 42}}}
+	a.sessionsMux.Lock()
+	ok, wait := a.reserveVoteLocked(-100, 42)
+	a.sessionsMux.Unlock()
+	if ok || wait != nil {
+		t.Fatalf("with a running vote: ok=%v wait=%v, want false, nil", ok, wait)
 	}
 }
